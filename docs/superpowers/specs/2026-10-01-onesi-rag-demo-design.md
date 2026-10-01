@@ -474,3 +474,18 @@ Haiku, non-streaming, `max_tokens` 200, strict tool `rewrite → {query: string,
 - **Resend domain** for production email. Not needed for local testing.
 - **ER document scoping.** ER-034/129/130/140/141 are generic Ariel documents. They are included in the `ariel-kbe` set for the demo and tagged `applies_to: [ariel-*]` for future sets.
 - **Branding.** The site is "Onesi" and the mockup says "MaintIQ". The demo page uses Onesi unless told otherwise.
+
+---
+
+## 13. Planning deltas
+
+These were decided while planning against the real PDFs. The implementation plan `docs/superpowers/plans/2026-10-01-onesi-rag-demo.md` is authoritative where it differs from the sections above:
+
+- **Citations** are derived server-side from `[p.N]` markers in the answer. `present_assets` returns only `figure_ids`.
+- **Tools don't use `strict: true`.** Inputs are validated server-side instead (figure IDs against candidates, icons against `icons.json`).
+- **CAD:** titles come from `manifest.yaml`. CAD sheets become figure candidates only when their sheet chunk is retrieved.
+- **Fuzzy lookup** uses `difflib` ratio ≥ 0.6.
+- **PDFs** are served at `/content-docs/<doc_id>.pdf`.
+- **Quota** is reserved atomically before the LLM calls and released on chat failure or disconnect.
+- **Captionless figures:** a caption with no detectable graphics (manual pp.123–124 flowcharts) is reported in the review page until `overrides.yaml` supplies a bbox.
+- **Validated figure rules:** captions are standalone `Figure:` text blocks. Legends may be numbered lines or a number column beside a label column, and may sit below or to the right of the graphic. Vector boxes that enclose body text (NOTE/CAUTION) are not graphics.
