@@ -19,7 +19,7 @@ from backend.ingest.describe import apply_vision
 from backend.ingest.figures import extract_figures
 from backend.ingest.index import doc_is_current, link_documents, replace_document, upsert_set
 from backend.ingest.manifest import load_manifest
-from backend.ingest.pdfutil import sha256_file
+from backend.ingest.pdfutil import sha256_bytes, sha256_file
 from backend.ingest.render import render_asset
 from backend.ingest.review import write_review
 from backend.ingest.sections import build_sections
@@ -51,50 +51,53 @@ def ingest_set(settings: Settings, set_id: str, *, force: bool, client, embedder
     manifest = load_manifest(settings.corpus_dir / set_id)
     content_dir = Path(settings.content_dir)
     conn = connect_content(content_dir / "content.db")
-    init_content_schema(conn)
-    upsert_set(conn, manifest)
-    summary = IngestSummary()
-    for spec in manifest.documents:
-        path = manifest.path(spec)
-        sha = sha256_file(path)
-        if not force and doc_is_current(conn, spec.id, sha):
-            summary.docs_skipped += 1
-            continue
-        doc = pymupdf.open(path)
-        title = spec.title or doc.metadata.get("title") or spec.id
-        pdf_rel = f"docs/{spec.id}.pdf"
-        (content_dir / "docs").mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(path, content_dir / pdf_rel)
-        if spec.role == "cad":
-            asset = extract_cad(doc, spec.id, title)
-            render_asset(doc, asset, content_dir, dpi=CAD_DPI)
-            assets, chunks = [asset], [cad_chunk(doc, spec.id, asset)]
-        else:
-            shutil.rmtree(content_dir / "figures" / spec.id, ignore_errors=True)  # drop stale crops
-            sections = build_sections(doc, title)
-            assets, problems = extract_figures(doc, spec.id, spec.role, sections, manifest.figure_override)
-            summary.problems += problems
-            for a in assets:
-                render_asset(doc, a, content_dir)
-            chunks = chunk_document(doc, spec.id, sections, assets)
-        if client is not None:
-            summary.vision_cost += apply_vision(conn, client, settings.vision_model, assets, content_dir)
-        replace_document(conn, doc_id=spec.id, file_name=path.name, role=spec.role, title=title, sha256=sha,
-                         page_count=doc.page_count, pdf_path=pdf_rel, chunks=chunks, assets=assets,
-                         embedder=embedder)
-        summary.docs_processed += 1
-    link_documents(conn, manifest.id, [d.id for d in manifest.documents])
-    q = "FROM {t} x JOIN set_documents s ON s.doc_id = x.doc_id WHERE s.set_id = ?"
-    summary.chunks = conn.execute("SELECT COUNT(*) " + q.format(t="chunks"), (set_id,)).fetchone()[0]
-    for row in conn.execute("SELECT x.asset_type, x.flags " + q.format(t="assets"), (set_id,)):
-        if row["asset_type"] == "cad":
-            summary.cad += 1
-        else:
-            summary.figures += 1
-        summary.flagged.update(json.loads(row["flags"]))
-    summary.review_path = write_review(conn, set_id, content_dir / "review" / f"{set_id}.html", summary.problems)
-    conn.close()
-    return summary
+    try:
+        init_content_schema(conn)
+        upsert_set(conn, manifest)
+        summary = IngestSummary()
+        for spec in manifest.documents:
+            path = manifest.path(spec)
+            doc_overrides = {fid: v for fid, v in (manifest.overrides.get("figures") or {}).items() if fid.startswith(spec.id + "/")}
+            fingerprint = sha256_bytes(json.dumps({"file": sha256_file(path), "title": spec.title, "role": spec.role, "overrides": doc_overrides}, sort_keys=True).encode())
+            if not force and doc_is_current(conn, spec.id, fingerprint):
+                summary.docs_skipped += 1
+                continue
+            doc = pymupdf.open(path)
+            title = spec.title or doc.metadata.get("title") or spec.id
+            pdf_rel = f"docs/{spec.id}.pdf"
+            (content_dir / "docs").mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(path, content_dir / pdf_rel)
+            if spec.role == "cad":
+                asset = extract_cad(doc, spec.id, title)
+                render_asset(doc, asset, content_dir, dpi=CAD_DPI)
+                assets, chunks = [asset], [cad_chunk(doc, spec.id, asset)]
+            else:
+                shutil.rmtree(content_dir / "figures" / spec.id, ignore_errors=True)  # drop stale crops
+                sections = build_sections(doc, title)
+                assets, problems = extract_figures(doc, spec.id, spec.role, sections, manifest.figure_override)
+                summary.problems += problems
+                for a in assets:
+                    render_asset(doc, a, content_dir)
+                chunks = chunk_document(doc, spec.id, sections, assets)
+            if client is not None:
+                summary.vision_cost += apply_vision(conn, client, settings.vision_model, assets, content_dir)
+            replace_document(conn, doc_id=spec.id, file_name=path.name, role=spec.role, title=title, sha256=fingerprint,
+                             page_count=doc.page_count, pdf_path=pdf_rel, chunks=chunks, assets=assets,
+                             embedder=embedder)
+            summary.docs_processed += 1
+        link_documents(conn, manifest.id, [d.id for d in manifest.documents])
+        q = "FROM {t} x JOIN set_documents s ON s.doc_id = x.doc_id WHERE s.set_id = ?"
+        summary.chunks = conn.execute("SELECT COUNT(*) " + q.format(t="chunks"), (set_id,)).fetchone()[0]
+        for row in conn.execute("SELECT x.asset_type, x.flags " + q.format(t="assets"), (set_id,)):
+            if row["asset_type"] == "cad":
+                summary.cad += 1
+            else:
+                summary.figures += 1
+            summary.flagged.update(json.loads(row["flags"]))
+        summary.review_path = write_review(conn, set_id, content_dir / "review" / f"{set_id}.html", summary.problems)
+        return summary
+    finally:
+        conn.close()
 
 
 def main(argv: list[str] | None = None) -> int:

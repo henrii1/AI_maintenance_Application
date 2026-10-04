@@ -27,3 +27,6 @@ testpaths = ["tests"]
 markers = [
   "integration: needs the real embedding model (downloads ~130MB once) and/or the built content/content.db",
 ]
+filterwarnings = [
+  "ignore:builtin type .* has no __module__ attribute:DeprecationWarning",
+]

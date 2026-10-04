@@ -25,9 +25,9 @@ def upsert_set(conn, m: Manifest) -> None:
     conn.commit()
 
 
-def doc_is_current(conn, doc_id: str, sha: str) -> bool:
+def doc_is_current(conn, doc_id: str, fingerprint: str) -> bool:
     row = conn.execute("SELECT sha256 FROM documents WHERE id = ?", (doc_id,)).fetchone()
-    return bool(row) and row["sha256"] == sha
+    return bool(row) and row["sha256"] == fingerprint
 
 
 def link_documents(conn, set_id: str, doc_ids: list[str]) -> None:

@@ -55,3 +55,27 @@ def test_ingest_end_to_end_and_idempotent(mini):
 def test_skip_vision(mini):
     s = ingest_set(mini, "mini", force=False, client=None, embedder=HashEmbedder())
     assert s.vision_cost == 0 and s.figures >= 2
+
+
+def test_ingest_detects_override_changes(mini):
+    client = FakeAnthropic(lambda kw: message(tool_use("record_figure", VISION)))
+    s1 = ingest_set(mini, "mini", force=False, client=client, embedder=HashEmbedder())
+    conn = connect_content(mini.content_dir / "content.db", readonly=False)
+    asset_count_before = conn.execute("SELECT COUNT(*) FROM assets WHERE id='er-130/compressor-guide-compartments'").fetchone()[0]
+    conn.close()
+
+    # Add an overrides.yaml that excludes a figure
+    (mini.corpus_dir / "mini" / "overrides.yaml").write_text(
+        "figures:\n"
+        "  er-130/compressor-guide-compartments:\n"
+        "    exclude: true\n")
+
+    # Re-run ingest with force=False; should re-process er-130 due to override change
+    s2 = ingest_set(mini, "mini", force=False, client=client, embedder=HashEmbedder())
+    assert s2.docs_processed == 1 and s2.docs_skipped == 1
+
+    # Verify the excluded asset is gone
+    conn = connect_content(mini.content_dir / "content.db", readonly=True)
+    asset_count_after = conn.execute("SELECT COUNT(*) FROM assets WHERE id='er-130/compressor-guide-compartments'").fetchone()[0]
+    assert asset_count_before > 0 and asset_count_after == 0
+    conn.close()
