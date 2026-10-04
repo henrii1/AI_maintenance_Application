@@ -1,0 +1,15 @@
+- {query: "How do I install the crosshead?", section: "Crosshead Installation", figure: "kbe-manual/crosshead-installation"}
+- {query: "main bearing cap torque order", figure: "kbe-manual/main-bearing-cap-or-connecting-rod-cap-torque-sequence"}
+- {query: "proximity switch wiring colours", figure: "kbe-manual/a-18255-proximity-switch-wiring-connections-for-unit-in-operation"}
+- {query: "how to prime the force feed lubricator pump", figure: "kbe-manual/pump-priming-and-adjustment"}
+- {query: "check chain elongation", figure: "kbe-manual/measuring-to-check-chain-elongation"}
+- {query: "three piece piston ring orientation", figure: "kbe-manual/three-piece-piston-ring-installation-orientation"}
+- {query: "connecting rod thrust side clearance measurement", figure: "kbe-manual/typical-connecting-rod-thrust-side-clearance-measurement"}
+- {query: "VVCP disassembly", figure: "kbe-manual/vvcp-disassembly-assembly"}
+- {query: "oil sampling valve", figure: "kbe-manual/ariel-oil-sampling-valve"}
+- {query: "thermostatic valve mixing mode", figure: "kbe-manual/thermostatic-valve-in-mixing-mode"}
+- {query: "daily maintenance checklist", section: "Daily Maintenance"}
+- {query: "preserve compressor frame for storage with PAG oil", doc: "er-140"}
+- {query: "encoder shaft drill depth for KBE", figure: "ol0782/sheet-1"}
+- {query: "guide support outline dimensions", figure: "ol0511/sheet-1"}
+- {query: "fastener torque accuracy recommendations", section: "Recommendations for Torque Accuracy"}
