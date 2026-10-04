@@ -2,4 +2,12 @@
 #   bbox: [x0, y0, x1, y1]   crop box in PDF points (overrides detection)
 #   caption: "New caption"    display caption (ID is unchanged)
 #   exclude: true             drop the figure
-figures: {}
+figures:
+  kbe-manual/crosshead-clearance-verification-correction-flowchart:
+    bbox: [60, 55, 560, 468]
+  kbe-manual/piston-rod-runout-verification-correction-flowchart:
+    bbox: [60, 55, 560, 640]
+  kbe-manual/viscosity-vs-temperature-graph-of-different-lubricants:
+    bbox: [56, 58, 741, 475]
+  kbe-manual/position-piston-at-outer-dead-center:
+    bbox: [306, 106, 556, 442]
