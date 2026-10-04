@@ -89,3 +89,20 @@ def test_render_asset_writes_png_and_thumb(manual, tmp_path):
     assert len(asset.image_sha) == 64
     thumb = pymupdf.Pixmap(str(tmp_path / asset.thumb_path))
     assert 380 <= thumb.width <= 420
+
+
+def test_uncaptioned_image_bbox_override():
+    doc = pymupdf.open(SET_DIR / "docs" / "ER-063.pdf")
+    sections = build_sections(doc, "ER-063")
+    fid = "er-063/p3-image-1"
+
+    assets, _ = extract_figures(doc, "er-063", "engineering_reference", sections, lambda f: {})
+    plain = next(a for a in assets if a.id == fid)
+    assert "uncaptioned" in plain.flags and "overridden" not in plain.flags
+
+    box = [98.69, 137.89, 525.31, 570.0]
+    assets, _ = extract_figures(doc, "er-063", "engineering_reference", sections,
+                                lambda f: {"bbox": box} if f == fid else {})
+    ov = next(a for a in assets if a.id == fid)
+    assert ov.bbox == pytest.approx(tuple(box))
+    assert "uncaptioned" in ov.flags and "overridden" in ov.flags

@@ -155,11 +155,12 @@ def extract_figures(doc: pymupdf.Document, doc_id: str, role: str, sections: lis
         if role == "engineering_reference":
             for k, rect in enumerate(_uncaptioned(page, taken), start=1):
                 fid = unique(f"{doc_id}/p{n}-image-{k}")
-                if override(fid).get("exclude"):
+                ov = override(fid)
+                if ov.get("exclude"):
                     continue
                 flags = ["uncaptioned"]
-                if override(fid).get("bbox"):
-                    rect = pymupdf.Rect(override(fid)["bbox"])
+                if ov.get("bbox"):
+                    rect = pymupdf.Rect(ov["bbox"])
                     flags.append("overridden")
                 section = section_at(sections, n, rect.y0)
                 assets.append(Asset(
