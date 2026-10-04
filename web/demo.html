@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Onesi Demo</title>
+<meta name="description" content="Onesi demo: AI-assisted maintenance procedures, figures and tools from OEM documentation.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/style.css">
+<link rel="stylesheet" href="assets/demo.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.2/marked.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.1.6/purify.min.js"></script>
+</head>
+<body class="demo-body">
+
+<header class="app-bar">
+  <a href="index.html" class="brand">ONESI<span class="dot">.</span></a>
+  <select id="set-select" aria-label="Equipment" hidden></select>
+  <div class="app-bar-right">
+    <span id="quota" class="pill" hidden></span>
+    <span id="who" class="who" hidden></span>
+    <button id="signout" class="btn-link" type="button" hidden>Sign out</button>
+  </div>
+</header>
+
+<main id="gate" class="gate" hidden>
+  <section class="gate-card" data-step="request">
+    <span class="label">Onesi demo</span>
+    <h1>Try the maintenance assistant</h1>
+    <p>Ask about maintenance on an Ariel KBE compressor and get step-by-step procedures from the OEM manual, the matching figure, and a tools list. Access is by invitation.</p>
+    <form id="request-form" novalidate>
+      <label>Email<input name="email" type="email" required autocomplete="email"></label>
+      <label>Name<input name="name" required autocomplete="name"></label>
+      <label>Company<input name="company" required autocomplete="organization"></label>
+      <label>What would you use it for? <span class="opt">(optional)</span><textarea name="note" rows="2" maxlength="1000"></textarea></label>
+      <input name="website" class="hp" tabindex="-1" autocomplete="off" aria-hidden="true">
+      <p class="form-error" role="alert" hidden></p>
+      <button class="btn btn-primary" type="submit">Request access</button>
+    </form>
+    <p class="gate-switch">Already have a code? <a href="#" data-goto="code">Enter it here</a></p>
+  </section>
+
+  <section class="gate-card" data-step="requested" hidden>
+    <span class="label">Request received</span>
+    <h1>Thanks, we'll be in touch</h1>
+    <p>We review every request. If approved, you'll get an email with an access code.</p>
+    <p class="gate-switch"><a href="#" data-goto="code">I have a code</a></p>
+  </section>
+
+  <section class="gate-card" data-step="code" hidden>
+    <span class="label">Access code</span>
+    <h1>Enter your access code</h1>
+    <form id="code-form" novalidate>
+      <label>Email<input name="email" type="email" required autocomplete="email"></label>
+      <label>Access code<input name="code" required placeholder="XXXX-XXXX" autocomplete="one-time-code" class="code-input" maxlength="12"></label>
+      <p class="form-error" role="alert" hidden></p>
+      <button class="btn btn-primary" type="submit">Open the demo</button>
+    </form>
+    <p class="gate-switch"><a href="#" id="new-code">Email me a new code</a> · <a href="#" data-goto="request">Request access</a></p>
+    <p class="form-note" id="new-code-note" hidden>If that email has been approved, a new code is on its way.</p>
+  </section>
+</main>
+
+<main id="app" class="workspace" data-active="steps" hidden>
+  <nav class="tabs" role="tablist" aria-label="Panels">
+    <button role="tab" type="button" data-pane="diagram" aria-selected="false">Diagram<span class="badge-dot" hidden></span></button>
+    <button role="tab" type="button" data-pane="steps" aria-selected="true">Steps</button>
+    <button role="tab" type="button" data-pane="tools" aria-selected="false">Tools<span class="badge-dot" hidden></span></button>
+  </nav>
+
+  <section class="pane pane-diagram" data-pane="diagram" aria-label="Figures and drawings">
+    <div class="pane-head">
+      <div class="seg">
+        <button type="button" data-view="figures" aria-pressed="true">Figures</button>
+        <button type="button" data-view="drawings" aria-pressed="false">Drawings</button>
+      </div>
+    </div>
+    <div class="viewer" id="viewer"><p class="empty">Ask a question and the most relevant manual figure appears here.</p></div>
+    <div class="viewer-meta" id="viewer-meta"></div>
+    <div class="thumbs" id="thumbs"></div>
+  </section>
+
+  <section class="pane pane-steps" data-pane="steps" aria-label="Assistant">
+    <div class="pane-head">
+      <h2>Maintenance assistant</h2>
+      <button id="new-job" class="btn-link" type="button">New job</button>
+    </div>
+    <div class="chat" id="chat" aria-live="polite">
+      <div class="starter" id="starter">
+        <p>Ask about a maintenance task on the <b id="equip-name">selected equipment</b>.</p>
+        <div class="chips">
+          <button type="button" class="chip">How do I install the crosshead?</button>
+          <button type="button" class="chip">What is the main bearing cap torque sequence?</button>
+          <button type="button" class="chip">How do I prime the force feed lubricator pump?</button>
+          <button type="button" class="chip">What is on the daily maintenance checklist?</button>
+        </div>
+      </div>
+    </div>
+    <form class="composer" id="composer">
+      <textarea id="input" rows="1" placeholder="Ask a maintenance question…" maxlength="2000" required></textarea>
+      <button class="btn btn-primary" id="send" type="submit">Send</button>
+    </form>
+    <p class="disclaimer">Answers come only from the OEM documentation shown. Check against the latest manual revision before starting work.</p>
+  </section>
+
+  <section class="pane pane-tools" data-pane="tools" aria-label="Tools">
+    <div class="pane-head"><h2>Tools for this job</h2></div>
+    <div id="tools"><p class="empty">The tools for the job appear here after your first question.</p></div>
+  </section>
+</main>
+
+<div class="lightbox" id="lightbox" hidden>
+  <button type="button" class="lb-close" aria-label="Close">×</button>
+  <div class="lb-stage"><img alt=""></div>
+  <p class="lb-hint">Scroll or pinch to zoom · drag to pan · double-click to reset</p>
+</div>
+
+<script type="module" src="assets/demo.js"></script>
+</body>
+</html>
