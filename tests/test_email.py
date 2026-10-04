@@ -32,6 +32,18 @@ def test_resend_payload_and_failure():
     assert bad.send("a@b.co", "Subj", "h", "t") is False
 
 
+def test_refused_email_is_printed_for_local_testing(capsys):
+    # Without a verified domain Resend refuses non-owner recipients (403); the code must still be recoverable.
+    refuse = httpx.MockTransport(lambda r: httpx.Response(
+        403, json={"message": "You can only send testing emails to your own email address"}))
+    s = Settings(_env_file=None, resend_api_key="re_test")
+    m = Mailer(s, http=httpx.Client(transport=refuse))
+    assert m.send("second@x.co", "Your Onesi access code", "<p>K7QM-4XPD</p>", "Code K7QM-4XPD") is False
+    out = capsys.readouterr().out
+    assert "NOT DELIVERED" in out and "second@x.co" in out and "K7QM-4XPD" in out
+    assert "only send testing emails" in out
+
+
 def test_templates():
     s = Settings(_env_file=None, public_base_url="https://onesi.example")
     subj, html, text = access_code_email(s, "t@x.co", "K7QM-4XPD")

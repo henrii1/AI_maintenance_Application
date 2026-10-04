@@ -1,4 +1,4 @@
-"""Transactional email via Resend; prints to the console when no API key is configured."""
+"""Transactional email via Resend; prints to the console when no API key is configured or Resend refuses."""
 from __future__ import annotations
 
 import logging
@@ -32,8 +32,7 @@ class Mailer:
     def send(self, to: str, subject: str, html: str, text: str) -> bool:
         self.outbox.append(SentEmail(to, subject, html, text))
         if not self.settings.resend_api_key:
-            print(f"\n===== EMAIL (console mode) =====\nTo: {to}\nSubject: {subject}\n\n{text}\n"
-                  f"================================\n", flush=True)
+            self._print("EMAIL (console mode)", to, subject, text)
             return True
         try:
             r = self.http.post(RESEND_URL, headers={"Authorization": f"Bearer {self.settings.resend_api_key}"},
@@ -42,8 +41,22 @@ class Mailer:
             r.raise_for_status()
             return True
         except httpx.HTTPError as e:
-            log.error("email to %s failed: %s", to, e)
+            reason = str(e)
+            if isinstance(e, httpx.HTTPStatusError):
+                try:
+                    reason = e.response.json().get("message", reason)
+                except ValueError:
+                    pass
+            log.error("email to %s failed: %s", to, reason)
+            # Keep the message recoverable from the server logs (e.g. Resend's sandbox refuses
+            # recipients other than the account owner until a domain is verified).
+            self._print(f"EMAIL NOT DELIVERED (Resend: {reason})", to, subject, text)
             return False
+
+    @staticmethod
+    def _print(title: str, to: str, subject: str, text: str) -> None:
+        print(f"\n===== {title} =====\nTo: {to}\nSubject: {subject}\n\n{text}\n"
+              f"================================\n", flush=True)
 
 
 def admin_notification(settings: Settings, email: str, name: str, company: str, note: str) -> tuple[str, str, str]:
