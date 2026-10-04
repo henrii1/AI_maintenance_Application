@@ -1,0 +1,5 @@
+# Per-figure fixes applied on every ingest run. Keys are figure IDs.
+#   bbox: [x0, y0, x1, y1]   crop box in PDF points (overrides detection)
+#   caption: "New caption"    display caption (ID is unchanged)
+#   exclude: true             drop the figure
+figures: {}

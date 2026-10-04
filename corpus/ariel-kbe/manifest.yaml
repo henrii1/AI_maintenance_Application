@@ -1,0 +1,17 @@
+id: ariel-kbe
+equipment:
+  name: Ariel KBE Reciprocating Compressor
+  manufacturer: Ariel Corporation
+  frame_class: KBE
+documents:
+  - {id: kbe-manual, file: docs/Ariel-KBE-Manual.pdf, role: manual, title: KBE Maintenance & Repair Manual}
+  - {id: er-034, file: docs/ER-034.pdf, role: engineering_reference, title: "ER-034 Protection of Non-Lube Cylinders and Distance Pieces with VCI Powder", applies_to: ["ariel-*"]}
+  - {id: er-063, file: docs/ER-063.pdf, role: engineering_reference, title: "ER-063 Fastener Torques for Reciprocating Compressors", applies_to: ["ariel-*"]}
+  - {id: er-129, file: docs/ER-129.pdf, role: engineering_reference, title: "ER-129 Preserving Compressor Frames (Mineral, PAO, Ester Oil)", applies_to: ["ariel-*"]}
+  - {id: er-130, file: docs/ER-130.pdf, role: engineering_reference, title: "ER-130 Preserving Cylinders and Distance Pieces (Mineral, PAO, Ester Oil)", applies_to: ["ariel-*"]}
+  - {id: er-140, file: docs/ER-140.pdf, role: engineering_reference, title: "ER-140 Preserving Compressor Frames (PAG Oil)", applies_to: ["ariel-*"]}
+  - {id: er-141, file: docs/ER-141.pdf, role: engineering_reference, title: "ER-141 Preserving Cylinders and Distance Pieces (PAG Oil)", applies_to: ["ariel-*"]}
+  - {id: ol0511, file: cad/OL0511_S1.PDF, role: cad, title: "OL0511 Guide Support Outline, H:E:ET Class Cylinders"}
+  - {id: ol0782, file: cad/OL0782_S1.PDF, role: cad, title: "OL0782 Encoder Shaft Attachment Details"}
+always_include_sections:
+  - {doc: kbe-manual, section_prefix: "Section 1 - Tools"}
