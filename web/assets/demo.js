@@ -225,12 +225,13 @@ function setView(view) {
 
 function showFigures(figures) {
   // merge: newest answer's figures first, keep earlier ones from this job after them
+  if (!figures.length) return;
   const seen = new Set(figures.map(f => f.id));
   state.figures = [...figures, ...state.figures.filter(f => !seen.has(f.id))];
   if (state.view !== "figures") setView("figures");
   renderThumbs(state.figures);
   showAsset(state.figures[0] || null);
-  if (figures.length) flagPane("diagram");
+  flagPane("diagram");
 }
 
 async function loadDrawings() {
@@ -313,21 +314,37 @@ function renderTools(groups, figures) {
   flagPane("tools");
 }
 
-function toolsError() {
+function toolsError(detail) {
   const box = $("#tools");
   box.innerHTML = "";
   const retry = el("button", { class: "btn btn-primary", type: "button", text: "Retry", onclick: async () => {
-    toolsSkeleton();
-    const resp = await api("/api/tools/retry", { conversation_id: state.conversationId });
-    if (resp.ok) { const j = await resp.json(); renderTools(j.groups, j.figures); } else toolsError();
+    if (retry.disabled) return;
+    retry.disabled = true;
+    let failure = null;
+    try {
+      toolsSkeleton();
+      const resp = await api("/api/tools/retry", { conversation_id: state.conversationId });
+      if (resp.ok) { const j = await resp.json(); renderTools(j.groups, j.figures); return; }
+      failure = (await resp.json().catch(() => ({}))).detail;
+    } catch { /* network failure: fall through to the error card */ }
+    toolsError(typeof failure === "string" ? failure : null);
   } });
-  box.append(el("p", { class: "tools-error", text: "Couldn't load tools." }), retry);
+  box.append(el("p", { class: "tools-error", text: detail || "Couldn't load tools." }), retry);
 }
 
 // ---------- chat ----------
+DOMPurify.addHook("afterSanitizeAttributes", node => {
+  if (node.tagName === "A") {
+    const href = node.getAttribute("href") || "";
+    if (!href.startsWith("https://")) node.removeAttribute("href");
+    node.setAttribute("target", "_blank");
+    node.setAttribute("rel", "noopener noreferrer");
+  }
+});
+
 function markdown(text) {
   const withCites = text.replace(CITE_RE, (_, p) => `<button class="cite" type="button" data-page="${p}">p.${p}</button>`);
-  return DOMPurify.sanitize(marked.parse(withCites), { ADD_ATTR: ["data-page"] });
+  return DOMPurify.sanitize(marked.parse(withCites), { ADD_ATTR: ["data-page"], FORBID_TAGS: ["img"] });
 }
 
 function addMessage(role, text) {
@@ -361,13 +378,18 @@ async function* sseEvents(resp) {
       buf = buf.slice(idx + 2);
       const ev = /^event: (.*)$/m.exec(block)?.[1];
       const data = /^data: (.*)$/m.exec(block)?.[1];
-      if (ev && data) yield [ev, JSON.parse(data)];
+      if (!ev || !data) continue;
+      let parsed;
+      try { parsed = JSON.parse(data); } catch { continue; }
+      yield [ev, parsed];
     }
   }
 }
 
 function setBusy(busy) {
   state.busy = busy;
+  $("#new-job").disabled = busy;
+  $("#set-select").disabled = busy;
   $("#send").disabled = busy;
   $("#input").disabled = busy;
   $$(".chip").forEach(c => { c.disabled = busy; });
@@ -382,8 +404,15 @@ async function ask(message) {
   const md = $(".md", bubble);
   const firstTurn = !state.conversationId;
   if (firstTurn) toolsSkeleton();
-  let text = "", frame = 0;
+  let text = "", frame = 0, errored = false, done = false;
   const paint = () => { frame = 0; md.innerHTML = markdown(text); bubble.scrollIntoView({ block: "end" }); };
+  const fail = message => {
+    errored = true;
+    cancelAnimationFrame(frame);
+    md.classList.remove("typing");
+    bubble.classList.add("error");
+    md.textContent = message;
+  };
   try {
     const resp = await api("/api/chat", { set_id: state.setId, conversation_id: state.conversationId, message });
     if (resp.status === 401) { location.reload(); return; }
@@ -402,19 +431,29 @@ async function ask(message) {
       } else if (ev === "tools") {
         if (data.error) toolsError(); else renderTools(data.groups, data.figures);
       } else if (ev === "error") {
-        md.classList.remove("typing");
-        bubble.classList.add("error");
-        md.textContent = data.message;
+        fail(data.message);
+        text = "";
         if (data.code === "quota_exceeded" && state.me) updateQuota({ ...state.me, remaining: 0 });
-        if (firstTurn) $("#tools").innerHTML = '<p class="empty">The tools for the job appear here after your first question.</p>';
+      } else if (ev === "done") {
+        done = true;
       }
     }
-    if (text) { cancelAnimationFrame(frame); paint(); }
   } catch (err) {
-    md.classList.remove("typing");
-    bubble.classList.add("error");
-    md.textContent = "Connection problem. Please try again.";
+    if (!errored && !text) fail("Connection problem. Please try again.");
   } finally {
+    if (!errored) {
+      cancelAnimationFrame(frame);
+      if (text) paint();
+      md.classList.remove("typing");
+      if (!done) {
+        if (text) md.append(el("p", { class: "interrupted", text: "(answer interrupted — try again)" }));
+        else fail("Connection problem. Please try again.");
+      }
+    }
+    if ((errored || !done) && $("#tools .skeleton")) {
+      if (state.conversationId && !errored) toolsError();
+      else $("#tools").innerHTML = '<p class="empty">The tools for the job appear here after your first question.</p>';
+    }
     setBusy(false);
     $("#input").focus();
   }

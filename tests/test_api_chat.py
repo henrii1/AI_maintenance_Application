@@ -182,14 +182,20 @@ def test_tools_retry_updates_message_without_quota(client, settings, script):
     row = db(settings).execute("SELECT tools_json FROM messages WHERE role='assistant'").fetchone()
     assert json.loads(row["tools_json"])[0]["category"] == "oem"
     assert client.get("/api/me").json()["remaining"] == 2
+    calls = script.count("submit_tools")
     again = client.post("/api/tools/retry", json={"conversation_id": cid})
-    assert again.status_code == 409
+    assert again.status_code == 200 and again.json()["groups"][0]["category"] == "oem"
+    assert script.count("submit_tools") == calls
 
 
-def test_retry_rejected_when_tools_already_loaded(client):
-    cid = events(ask(client))[0][1]["conversation_id"]
+def test_retry_returns_stored_tools_without_llm_call(client, script):
+    evs = events(ask(client))
+    cid = evs[0][1]["conversation_id"]
+    stored = next(d for e, d in evs if e == "tools")
+    before = script.count("submit_tools")
     r = client.post("/api/tools/retry", json={"conversation_id": cid})
-    assert r.status_code == 409 and r.json()["detail"] == "Tools are already loaded for this answer."
+    assert r.status_code == 200 and r.json()["groups"] == stored["groups"]
+    assert script.count("submit_tools") == before
 
 
 async def test_disconnect_releases_quota(settings, script):

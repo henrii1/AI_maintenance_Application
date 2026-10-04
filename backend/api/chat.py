@@ -252,7 +252,9 @@ async def retry_tools(body: RetryIn, request: Request, viewer: Viewer = Depends(
         if last is None:
             raise HTTPException(404, "Nothing to retry yet.")
         if last["tools_json"] is not None:
-            raise HTTPException(409, "Tools are already loaded for this answer.")
+            groups = json.loads(last["tools_json"])
+            ids = list(dict.fromkeys(t["figure_id"] for g in groups for t in g["tools"] if t.get("figure_id")))
+            return {"groups": groups, "figures": [a.public() for a in retriever.get_assets(ids)]}
         set_info = retriever.get_set(conv["set_id"])
         chunks = await asyncio.to_thread(retriever.search_chunks, conv["set_id"], last["query"])
         candidates = await asyncio.to_thread(retriever.figure_candidates, conv["set_id"], last["query"], chunks)
