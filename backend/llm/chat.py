@@ -47,10 +47,14 @@ def citations_from(text: str, chunks: list) -> list[dict]:
 def pick_figures(ids: list[str] | None, ctx: ChatContext) -> list[str]:
     allowed = {a.id for a in ctx.candidates}
     out: list[str] = []
-    for fid in ids or []:
+    if not isinstance(ids, list):
+        ids = []
+    for fid in ids:
+        if not isinstance(fid, str):
+            continue
         if fid not in allowed:
             fid = ctx.resolve(fid)
-        if fid and fid not in out:
+        if fid and fid in allowed and fid not in out:
             out.append(fid)
     if not out and ctx.candidates:
         out = [ctx.candidates[0].id]
@@ -71,6 +75,9 @@ async def stream_answer(client, model: str, ctx: ChatContext) -> AsyncIterator[t
         final = await stream.get_final_message()
     text = "".join(b.text for b in final.content if getattr(b, "type", None) == "text")
     chosen = tool_input(final, "present_assets") or {}
-    yield "assets", {"figure_ids": pick_figures(chosen.get("figure_ids"), ctx),
+    figure_ids = chosen.get("figure_ids")
+    if not isinstance(figure_ids, list):
+        figure_ids = None
+    yield "assets", {"figure_ids": pick_figures(figure_ids, ctx),
                      "citations": citations_from(text, ctx.chunks)}
     yield "final", {"text": text, "usage": final.usage, "stop_reason": final.stop_reason}

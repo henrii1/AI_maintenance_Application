@@ -105,3 +105,32 @@ async def test_recommend_tools_request_shape_and_errors():
     with pytest.raises(ToolsError):
         await recommend_tools(FakeAsyncAnthropic(lambda kw: message(text_block("no tool"))), "claude-haiku-4-5",
                               tctx, ["generic-tool"], web_search=False)
+
+
+def test_normalize_groups_tolerates_bad_types():
+    raw = {"groups": ["x", {"category": ["oem"], "tools": "nope"}, {"category": "hand", "tools": [5, {"name": ["a"]}, {"name": "Wrench", "category": {}, "icon": ["x"], "source": 3, "figure_id": ["kbe-manual/a"], "purpose": 7}]}]}
+    groups = normalize_groups(raw, ["feeler-gauge", "oem-tool", "generic-tool"], {"kbe-manual/a"})
+    assert groups == [{"category": "hand", "tools": [{"name": "Wrench", "purpose": "", "spec": None, "source": "general", "source_ref": None, "icon": "generic-tool", "figure_id": None}]}]
+
+    groups2 = normalize_groups({"groups": "bad"}, ["generic-tool"], set())
+    assert groups2 == []
+
+
+def test_web_source_ref_must_be_http_url():
+    raw = {"groups": [{"category": "hand", "tools": [
+        {"name": "Bad link", "purpose": "", "source": "web", "source_ref": "javascript:alert(1)", "icon": "generic-tool"},
+        {"name": "Good link", "purpose": "", "source": "web", "source_ref": "https://example.com/x", "icon": "generic-tool"},
+        {"name": "Manual ref", "purpose": "", "source": "manual", "source_ref": "p.42", "icon": "generic-tool"},
+    ]}]}
+    groups = normalize_groups(raw, ["generic-tool"], set())
+    assert groups[0]["tools"][0]["source_ref"] is None  # javascript: rejected
+    assert groups[0]["tools"][1]["source_ref"] == "https://example.com/x"  # https kept
+    assert groups[0]["tools"][2]["source_ref"] == "p.42"  # manual source_ref kept
+
+
+def test_pick_figures_ignores_bad_types():
+    assert pick_figures([5, None, "kbe-manual/b"], CTX) == ["kbe-manual/b"]
+    assert pick_figures("kbe-manual/b", CTX) == ["kbe-manual/a"]  # string not iterated → fallback
+
+    empty = ChatContext(equipment={}, chunks=[], candidates=[], history=[], question="q", resolve=lambda n: None)
+    assert pick_figures([5], empty) == []  # non-str ignored, no candidates for fallback
