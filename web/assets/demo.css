@@ -36,7 +36,7 @@
 .gate-switch a:hover { color: var(--navy); }
 
 /* ---- workspace ---- */
-.workspace { flex: 1; display: grid; grid-template-columns: 30fr 40fr 30fr; gap: 14px; padding: 14px; min-height: 0; height: calc(100vh - 56px); }
+.workspace { flex: none; box-sizing: border-box; display: grid; grid-template-columns: 30fr 40fr 30fr; grid-template-rows: minmax(0, 1fr); gap: 14px; padding: 14px; min-height: 0; height: calc(100vh - 56px); }
 .pane { background: var(--white); border: 1px solid var(--line); border-radius: 12px; display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
 .pane-head { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; border-bottom: 1px solid var(--line); }
 .pane-head h2 { font-family: var(--font-head); font-size: 16px; margin: 0; }
