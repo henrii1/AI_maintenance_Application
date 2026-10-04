@@ -148,6 +148,7 @@ async def run_turn(t: Turn) -> AsyncIterator[str]:
         assets: dict | None = None
         tools_groups: list | None = None
         chat_failed = False
+        assistant_id: int | None = None
         while open_jobs:
             source, kind, payload = await queue.get()
             if kind == "end":
@@ -162,26 +163,31 @@ async def run_turn(t: Turn) -> AsyncIterator[str]:
                 answer = payload
                 log_call(t.conn, conversation_id=t.conversation_id, email=t.email, call_type="chat",
                          model=s.chat_model, usage=payload["usage"], now=utcnow())
+                # persist right away: the answer is delivered, so the question is spent even if tools are pending
+                now = iso(utcnow())
+                t.conn.execute("INSERT INTO messages (conversation_id, role, content, created_at)"
+                               " VALUES (?, 'user', ?, ?)", (t.conversation_id, t.message, now))
+                cur = t.conn.execute(
+                    "INSERT INTO messages (conversation_id, role, content, query, assets_json, tools_json, created_at)"
+                    " VALUES (?, 'assistant', ?, ?, ?, ?, ?)",
+                    (t.conversation_id, answer["text"], rw.query, json.dumps(assets),
+                     json.dumps(tools_groups) if tools_groups is not None else None, now))
+                assistant_id = cur.lastrowid
+                completed = True
             elif source == "chat" and kind == "error":
                 chat_failed = True
                 yield sse("error", {"code": "upstream_error", "message": BUSY})
             elif source == "tools" and kind == "result":
                 result, figures = payload
                 tools_groups = result.groups
+                if assistant_id is not None:
+                    t.conn.execute("UPDATE messages SET tools_json = ? WHERE id = ?",
+                                   (json.dumps(result.groups), assistant_id))
                 log_call(t.conn, conversation_id=t.conversation_id, email=t.email, call_type="tools",
                          model=s.tools_model, usage=result.usage, now=utcnow())
                 yield sse("tools", {"groups": result.groups, "figures": figures})
             elif source == "tools" and kind == "error":
                 yield sse("tools", {"error": "Couldn't load tools."})
-        if answer is not None and not chat_failed:
-            now = iso(utcnow())
-            t.conn.execute("INSERT INTO messages (conversation_id, role, content, created_at) VALUES (?, 'user', ?, ?)",
-                           (t.conversation_id, t.message, now))
-            t.conn.execute("INSERT INTO messages (conversation_id, role, content, query, assets_json, tools_json,"
-                           " created_at) VALUES (?, 'assistant', ?, ?, ?, ?, ?)",
-                           (t.conversation_id, answer["text"], rw.query, json.dumps(assets),
-                            json.dumps(tools_groups) if tools_groups is not None else None, now))
-            completed = True
         yield sse("done", {})
     finally:
         for task in tasks:
@@ -198,6 +204,7 @@ async def chat(body: ChatIn, request: Request, viewer: Viewer = Depends(require_
     set_info = retriever.get_set(body.set_id)
     if set_info is None:
         raise HTTPException(404, "Unknown equipment set.")
+    llm, icon_keys = _llm(request), _icon_keys(request)  # may fail: resolve before reserving quota
     conn = connect_app(settings.data_dir / "app.db")
     try:
         now = utcnow()
@@ -206,9 +213,14 @@ async def chat(body: ChatIn, request: Request, viewer: Viewer = Depends(require_
             conversation_id, history = body.conversation_id, _history(conn, body.conversation_id)
         else:
             conversation_id, history = uuid4().hex, []
-            conn.execute("INSERT INTO conversations (id, email, set_id, created_at) VALUES (?, ?, ?, ?)",
-                         (conversation_id, viewer.email, body.set_id, iso(now)))
         q = quota.try_reserve(conn, viewer.email, settings, now, is_admin=viewer.is_admin)
+        if q.allowed and not body.conversation_id:
+            try:
+                conn.execute("INSERT INTO conversations (id, email, set_id, created_at) VALUES (?, ?, ?, ?)",
+                             (conversation_id, viewer.email, body.set_id, iso(now)))
+            except BaseException:
+                quota.release(conn, viewer.email, utcnow())
+                raise
     except BaseException:
         conn.close()
         raise
@@ -219,10 +231,10 @@ async def chat(body: ChatIn, request: Request, viewer: Viewer = Depends(require_
         body_events = [sse("error", {"code": "quota_exceeded", "message": f"{msg} It resets at midnight UTC.",
                                      "resets_at": q.resets_at}), sse("done", {})]
         return StreamingResponse(iter(body_events), media_type="text/event-stream", headers=SSE_HEADERS)
-    turn = Turn(settings=settings, llm=_llm(request), retriever=retriever, conn=conn, email=viewer.email,
+    turn = Turn(settings=settings, llm=llm, retriever=retriever, conn=conn, email=viewer.email,
                 is_admin=viewer.is_admin, set_id=body.set_id, set_info=set_info, conversation_id=conversation_id,
                 history=history, message=body.message.strip(), remaining=q.remaining,
-                icon_keys=_icon_keys(request))
+                icon_keys=icon_keys)
     return StreamingResponse(run_turn(turn), media_type="text/event-stream", headers=SSE_HEADERS)
 
 
@@ -239,6 +251,8 @@ async def retry_tools(body: RetryIn, request: Request, viewer: Viewer = Depends(
                             " ORDER BY id DESC LIMIT 1", (conv["id"],)).fetchone()
         if last is None:
             raise HTTPException(404, "Nothing to retry yet.")
+        if last["tools_json"] is not None:
+            raise HTTPException(409, "Tools are already loaded for this answer.")
         set_info = retriever.get_set(conv["set_id"])
         chunks = await asyncio.to_thread(retriever.search_chunks, conv["set_id"], last["query"])
         candidates = await asyncio.to_thread(retriever.figure_candidates, conv["set_id"], last["query"], chunks)

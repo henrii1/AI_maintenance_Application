@@ -146,13 +146,15 @@ def test_chat_failure_releases_quota(client, settings, script):
     assert db(settings).execute("SELECT COUNT(*) FROM messages WHERE role='assistant'").fetchone()[0] == 0
 
 
-def test_quota_exceeded_makes_no_llm_calls(client, script):
+def test_quota_exceeded_makes_no_llm_calls(client, settings, script):
     for _ in range(3):
         assert events(ask(client))[-1][0] == "done"
     calls = len(script.client.messages.calls)
+    convs = db(settings).execute("SELECT COUNT(*) FROM conversations").fetchone()[0]
     ev = events(ask(client))
     assert ev[0][0] == "error" and ev[0][1]["code"] == "quota_exceeded" and "resets_at" in ev[0][1]
     assert len(script.client.messages.calls) == calls
+    assert db(settings).execute("SELECT COUNT(*) FROM conversations").fetchone()[0] == convs
 
 
 def test_foreign_conversation_rejected(client, make_client, settings, script):
@@ -180,6 +182,14 @@ def test_tools_retry_updates_message_without_quota(client, settings, script):
     row = db(settings).execute("SELECT tools_json FROM messages WHERE role='assistant'").fetchone()
     assert json.loads(row["tools_json"])[0]["category"] == "oem"
     assert client.get("/api/me").json()["remaining"] == 2
+    again = client.post("/api/tools/retry", json={"conversation_id": cid})
+    assert again.status_code == 409
+
+
+def test_retry_rejected_when_tools_already_loaded(client):
+    cid = events(ask(client))[0][1]["conversation_id"]
+    r = client.post("/api/tools/retry", json={"conversation_id": cid})
+    assert r.status_code == 409 and r.json()["detail"] == "Tools are already loaded for this answer."
 
 
 async def test_disconnect_releases_quota(settings, script):
@@ -204,3 +214,34 @@ async def test_disconnect_releases_quota(settings, script):
     assert check.execute("SELECT COUNT(*) FROM messages").fetchone()[0] == 0
     await asyncio.sleep(0.1)  # cancelled tasks must not write afterwards
     assert check.execute("SELECT COUNT(*) FROM messages").fetchone()[0] == 0
+
+
+async def test_answer_kept_when_client_leaves_during_tools(settings, script):
+    build_tiny_content(settings.content_dir)
+    approve_in_db(settings, "tech@example.com")
+    conn = db(settings)
+    assert quota.try_reserve(conn, "tech@example.com", settings, utcnow()).allowed
+    conn.execute("INSERT INTO conversations (id, email, set_id, created_at) VALUES ('c1','tech@example.com','demo','x')")
+    fast_create = script.client.messages.create
+
+    async def slow_tools_create(**kw):
+        if "submit_tools" in script.names(kw):
+            await asyncio.sleep(0.5)
+        return await fast_create(**kw)
+
+    script.client.messages.create = slow_tools_create
+    retriever = Retriever.open(settings.content_dir, HashEmbedder())
+    turn = Turn(settings=settings, llm=script.client, retriever=retriever, conn=conn, email="tech@example.com",
+                is_admin=False, set_id="demo", set_info=retriever.get_set("demo"), conversation_id="c1",
+                history=[], message="How do I install the crosshead?", remaining=2,
+                icon_keys=["oem-tool", "generic-tool"])
+    gen = run_turn(turn)
+    while not (await gen.__anext__()).startswith("event: assets"):
+        pass
+    with pytest.raises(asyncio.TimeoutError):  # only the tools result is still pending
+        await asyncio.wait_for(gen.__anext__(), 0.2)
+    await gen.aclose()  # browser went away before tools finished
+    check = db(settings)
+    assert check.execute("SELECT questions FROM usage_daily").fetchone()["questions"] == 1
+    assert [r["role"] for r in check.execute("SELECT role FROM messages ORDER BY id")] == ["user", "assistant"]
+    assert check.execute("SELECT tools_json FROM messages WHERE role='assistant'").fetchone()["tools_json"] is None
