@@ -70,7 +70,7 @@ document.addEventListener('DOMContentLoaded', function () {
       fetch('/api/access/request', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: data.get('email'), name: data.get('name'), company: data.get('company'),
-                               note: data.get('title') ? 'Job title: ' + data.get('title') : '' })
+                               note: [data.get('title') ? 'Job title: ' + data.get('title') : '', data.get('message') || ''].filter(Boolean).join('\n') })
       }).then(function (r) {
         if (r.ok) { done(); return; }
         return r.json().catch(function () { return {}; }).then(function (j) {

@@ -1,3 +1,5 @@
+import re
+
 def test_demo_and_admin_pages_served(make_client):
     c = make_client()
     demo = c.get("/demo")
@@ -14,3 +16,14 @@ def test_admin_page_and_prototype_link(make_client):
     proto = c.get("/prototype.html").text
     assert 'href="/demo"' in proto and "Prototype Coming Soon" not in proto
     assert "data-access-form" in proto
+
+
+def test_site_links_to_demo(make_client):
+    c = make_client()
+    home = c.get("/").text
+    assert 'href="/demo"' in home and "See Onesi in action" in home
+    assert "<video" in home and "demo-video.mp4" in home
+    for page in ("/", "/prototype.html", "/team.html", "/contact.html"):
+        html = c.get(page).text
+        assert not re.search(r'href="contact\.html"[^>]*>Request a Demo', html)
+    assert "data-access-form" in c.get("/contact.html").text
