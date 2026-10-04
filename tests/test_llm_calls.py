@@ -7,9 +7,9 @@ from tests.conftest import ROOT
 from tests.fakes import FakeAsyncAnthropic, message, text_block, tool_use, usage
 
 
-def chunk(id_, page, doc="kbe-manual"):
+def chunk(id_, page, doc="kbe-manual", role="manual", end=None):
     return ChunkHit(id=id_, doc_id=doc, doc_title="Manual", section_path=f"S{page}", page_start=page,
-                    page_end=page, text="t", figure_refs=(), has_warning=False, score=0.0)
+                    page_end=end or page, text="t", figure_refs=(), has_warning=False, score=0.0, doc_role=role)
 
 
 def fig(id_, page=88):
@@ -25,9 +25,27 @@ CTX = ChatContext(equipment={"name": "KBE"}, chunks=[chunk("c1", 88), chunk("c2"
 
 def test_citations_map_pages_to_chunks():
     cites = citations_from("Do X [p.88]. Then Y [p.12] and again [p.88]. Unknown [p.5]. Range [p. 12-13]", CTX.chunks)
-    assert cites == [{"page": 88, "doc_id": "kbe-manual", "section_path": "S88"},
-                     {"page": 12, "doc_id": "kbe-manual", "section_path": "S12"},
-                     {"page": 5, "doc_id": None, "section_path": None}]
+    assert cites == [{"page": 88, "ref": None, "doc_id": "kbe-manual", "section_path": "S88"},
+                     {"page": 12, "ref": None, "doc_id": "kbe-manual", "section_path": "S12"},
+                     {"page": 5, "ref": None, "doc_id": None, "section_path": None}]
+
+
+def test_citations_with_refs_and_ambiguous_pages():
+    chunks = [chunk("m", 88), chunk("a", 2, doc="er-140", role="reference", end=4),
+              chunk("b", 2, doc="er-141", role="reference", end=4), chunk("c", 7, doc="er-141", role="reference")]
+    cites = citations_from("A [ER-140 p.2] B [ER-141 p.2] C [p.2] D [p.88] E [pp.3-4] F [ER-141 p.9] "
+                           "G [ER-999 p.2] H [p.7] I [ER-140 p.2]", chunks)
+    assert [(c["ref"], c["page"], c["doc_id"]) for c in cites] == [
+        ("ER-140", 2, "er-140"), ("ER-141", 2, "er-141"),
+        (None, 2, None),            # ambiguous: two non-manual docs, no manual chunk on that page
+        (None, 88, "kbe-manual"),
+        (None, 3, None),            # pp. form, ambiguous
+        ("ER-141", 9, "er-141"),    # ref names a retrieved doc, no chunk on that page: doc still known
+        ("ER-999", 2, None),        # ref not among retrieved docs
+        (None, 7, "er-141")]        # unique doc holding the page
+    assert cites[5]["section_path"] is None and cites[0]["section_path"] == "S2"
+    assert len(cites) == 8          # duplicate (ER-140, 2) dropped
+    assert citations_from("see [p.87-88] and [pp. 12–13]", [chunk("m", 88, end=88), chunk("n", 12, end=13)])[0]["page"] == 87
 
 
 def test_pick_figures_validates_and_falls_back():
@@ -46,7 +64,7 @@ async def test_stream_answer_events_and_request():
     events = [e async for e in stream_answer(client, "claude-haiku-4-5", CTX)]
     assert events[:2] == [("token", "Install "), ("token", "it [p.88].")]
     assert events[2] == ("assets", {"figure_ids": ["kbe-manual/b"],
-                                    "citations": [{"page": 88, "doc_id": "kbe-manual", "section_path": "S88"}]})
+                                    "citations": [{"page": 88, "ref": None, "doc_id": "kbe-manual", "section_path": "S88"}]})
     assert events[3][0] == "final" and events[3][1]["text"] == "Install it [p.88]."
     req = client.messages.calls[0]
     assert req["tools"][0]["input_schema"]["properties"]["figure_ids"]["items"]["enum"] == ["kbe-manual/a", "kbe-manual/b"]

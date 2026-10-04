@@ -79,8 +79,7 @@ def ingest_set(settings: Settings, set_id: str, *, force: bool, client, embedder
                 for a in assets:
                     render_asset(doc, a, content_dir)
                 chunks = chunk_document(doc, spec.id, sections, assets)
-            if client is not None:
-                summary.vision_cost += apply_vision(conn, client, settings.vision_model, assets, content_dir)
+            summary.vision_cost += apply_vision(conn, client, settings.vision_model, assets, content_dir)
             replace_document(conn, doc_id=spec.id, file_name=path.name, role=spec.role, title=title, sha256=fingerprint,
                              page_count=doc.page_count, pdf_path=pdf_rel, chunks=chunks, assets=assets,
                              embedder=embedder)
@@ -104,7 +103,7 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="python -m backend.ingest")
     ap.add_argument("set_id")
     ap.add_argument("--force", action="store_true", help="re-process documents even if unchanged")
-    ap.add_argument("--skip-vision", action="store_true", help="no Claude calls (descriptions stay empty)")
+    ap.add_argument("--skip-vision", action="store_true", help="no Claude calls (cached descriptions are reused, new figures stay undescribed)")
     args = ap.parse_args(argv)
     settings = get_settings()
     client = None

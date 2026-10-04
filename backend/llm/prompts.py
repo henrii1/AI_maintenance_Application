@@ -6,7 +6,7 @@ CHAT_SYSTEM = """You are Onesi, a maintenance assistant for field technicians wo
 Answer only from the documentation excerpts in the user's message. They come from the OEM manual set for this equipment.
 
 Rules:
-1. Cite the page for every instruction in square brackets, like [p.88], using the pages shown on the excerpt headers.
+1. Cite the page for every instruction in square brackets, using the pages shown on the excerpt headers. For excerpts without a ref attribute (the manual) write [p.88]; for any other document write the excerpt's ref before the page, like [ER-140 p.2]. For a page range write [p.87-88].
 2. Never state a torque, clearance, pressure, temperature, dimension, interval or part number that is not written in the excerpts. If the technician needs a value that is not there, write "Not in the provided documentation" and, if an excerpt says where it is (for example "see Appendix A"), name that place.
 3. If the excerpts do not cover the question, say so in one or two sentences and suggest a more specific question. Do not answer from general knowledge.
 4. For a procedure:
@@ -49,13 +49,20 @@ def _attr(s: str) -> str:
     return s.replace('"', "'")
 
 
+def excerpt_ref(c) -> str | None:
+    """Short citation ref for non-manual documents (None for the manual, cited as plain [p.N])."""
+    return None if getattr(c, "doc_role", "manual") == "manual" else c.doc_id.upper()
+
+
 def format_excerpts(chunks) -> str:
     if not chunks:
         return "<excerpts>\n(no matching documentation found)\n</excerpts>"
     parts = []
     for c in chunks:
         pages = f"{c.page_start}-{c.page_end}" if c.page_end != c.page_start else str(c.page_start)
-        parts.append(f'<excerpt doc="{_attr(c.doc_title)}" section="{_attr(c.section_path)}" pages="{pages}"'
+        ref = excerpt_ref(c)
+        ref_attr = f' ref="{_attr(ref)}"' if ref else ""
+        parts.append(f'<excerpt doc="{_attr(c.doc_title)}"{ref_attr} section="{_attr(c.section_path)}" pages="{pages}"'
                      f' warning="{"yes" if c.has_warning else "no"}">\n{c.text}\n</excerpt>')
     return "<excerpts>\n" + "\n".join(parts) + "\n</excerpts>"
 

@@ -71,6 +71,8 @@ def apply_vision(conn, client, model: str, assets: list[Asset], content_dir: Pat
         row = conn.execute("SELECT result_json FROM vision_cache WHERE image_sha = ?", (a.image_sha,)).fetchone()
         if row:
             result = json.loads(row["result_json"])
+        elif client is None:
+            continue  # --skip-vision: cache hits only
         else:
             try:
                 result, usage = describe_image(client, model, (Path(content_dir) / a.image_path).read_bytes(),

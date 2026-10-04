@@ -148,7 +148,7 @@ init();
 // Workspace: chat stream, figure viewer, drawings, tools, mobile tabs, lightbox
 // =====================================================================================
 const GROUP_LABELS = { oem: "OEM tools", power: "Power tools", hand: "Hand tools", measuring: "Measuring", consumables: "Consumables" };
-const CITE_RE = /\[p\.?\s*(\d+)(?:\s*[-–]\s*\d+)?\]/g;
+const CITE_RE = /\[(?:([A-Z][A-Z0-9-]{1,15})\s+)?pp?\.?\s*(\d+)(?:\s*[-–]\s*\d+)?\]/g;
 const narrow = window.matchMedia("(max-width: 899px)");
 
 function el(tag, attrs = {}, ...children) {
@@ -343,8 +343,9 @@ DOMPurify.addHook("afterSanitizeAttributes", node => {
 });
 
 function markdown(text) {
-  const withCites = text.replace(CITE_RE, (_, p) => `<button class="cite" type="button" data-page="${p}">p.${p}</button>`);
-  return DOMPurify.sanitize(marked.parse(withCites), { ADD_ATTR: ["data-page"], FORBID_TAGS: ["img"] });
+  const withCites = text.replace(CITE_RE, (_, ref, p) =>
+    `<button class="cite" type="button" data-page="${p}"${ref ? ` data-ref="${ref}"` : ""}>${ref ? ref + " " : ""}p.${p}</button>`);
+  return DOMPurify.sanitize(marked.parse(withCites), { ADD_ATTR: ["data-page", "data-ref"], FORBID_TAGS: ["img"] });
 }
 
 function addMessage(role, text) {
@@ -357,11 +358,12 @@ function addMessage(role, text) {
   return node;
 }
 
-function onCite(page) {
-  const fig = state.figures.find(f => f.page === page);
+function onCite(page, ref) {
+  const cite = state.citations.find(c => c.page === page && (c.ref || null) === (ref || null));
+  const docId = cite?.doc_id || null;
+  const fig = docId && state.figures.find(f => f.doc_id === docId && f.page === page);
   if (fig) { showAsset(fig); activatePane("diagram"); return; }
-  const cite = state.citations.find(c => c.page === page && c.doc_id);
-  if (cite) window.open(`/content-docs/${cite.doc_id}.pdf#page=${page}`, "_blank", "noopener");
+  if (docId) window.open(`/content-docs/${docId}.pdf#page=${page}`, "_blank", "noopener");
 }
 
 async function* sseEvents(resp) {
@@ -483,7 +485,7 @@ function bindWorkspace() {
   });
   $("#input").addEventListener("input", e => { e.target.style.height = "auto"; e.target.style.height = `${e.target.scrollHeight}px`; });
   $$(".chip").forEach(c => c.addEventListener("click", () => ask(c.textContent)));
-  $("#chat").addEventListener("click", e => { const b = e.target.closest(".cite"); if (b) onCite(Number(b.dataset.page)); });
+  $("#chat").addEventListener("click", e => { const b = e.target.closest(".cite"); if (b) onCite(Number(b.dataset.page), b.dataset.ref || null); });
   $("#new-job").addEventListener("click", newJob);
   $$(".tabs [data-pane]").forEach(b => b.addEventListener("click", () => activatePane(b.dataset.pane)));
   $$(".seg [data-view]").forEach(b => b.addEventListener("click", () => setView(b.dataset.view)));

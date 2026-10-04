@@ -36,7 +36,8 @@ def test_sets_and_get_set(retriever):
 def test_search_chunks_lexical_and_part_numbers(retriever):
     hits = retriever.search_chunks("demo", "crosshead installation plate")
     assert hits[0].id == "man:0001"
-    assert hits[0].doc_title == "Demo Manual"
+    assert hits[0].doc_title == "Demo Manual" and hits[0].doc_role == "manual"
+    assert retriever.search_chunks("demo", "encoder shaft drill depth")[0].doc_role == "cad"
     assert hits[0].figure_refs == ("man/crosshead-installation", "man/crosshead-alignment-tool")
     assert retriever.search_chunks("demo", "A-18255 wiring")[0].id == "man:0004"
     assert len(retriever.search_chunks("demo", "crosshead", k=2)) == 2
@@ -75,3 +76,9 @@ def test_resolve_figure_fuzzy(retriever):
     assert retriever.resolve_figure("demo", "Crosshed Instalation") == "man/crosshead-installation"
     assert retriever.resolve_figure("demo", "Figure: A18255 proximity switch wiring") == "man/a-18255-wiring"
     assert retriever.resolve_figure("demo", "completely unrelated words here") is None
+
+
+def test_warm_builds_all_matrices(retriever):
+    retriever._matrices.clear()
+    retriever.warm()
+    assert {("demo", "chunks"), ("demo", "assets")} <= set(retriever._matrices)

@@ -1,6 +1,9 @@
 """Application factory: run with `uvicorn backend.api.app:create_app --factory`."""
 from __future__ import annotations
 
+import asyncio
+import logging
+from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -12,6 +15,8 @@ from backend.auth.email import Mailer
 from backend.auth.ratelimit import RateLimiter
 from backend.config import Settings, get_settings
 from backend.db import connect_app
+
+log = logging.getLogger(__name__)
 
 
 @dataclass
@@ -26,7 +31,17 @@ def create_app(settings: Settings | None = None, *, retriever=None, llm=None, ma
 
     settings = settings or get_settings()
     settings.check_production()
-    app = FastAPI(title="Onesi", docs_url=None, redoc_url=None, openapi_url=None)
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        if app.state.retriever is None and (Path(settings.content_dir) / "content.db").is_file():
+            from backend.api.deps import get_retriever_for
+            try:
+                await asyncio.to_thread(lambda: get_retriever_for(app).warm())
+            except Exception:  # lazy path still works and will surface the error per request
+                log.exception("retriever warm-up failed")
+        yield
+
+    app = FastAPI(title="Onesi", docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan)
     app.state.settings = settings
     app.state.mailer = mailer or Mailer(settings)
     app.state.limiters = Limiters()

@@ -9,7 +9,7 @@ from backend.llm.common import tool_input
 from backend.llm.prompts import chat_system, chat_user_content
 
 MAX_FIGURES = 3
-CITE = re.compile(r"\[p\.?\s*(\d+)(?:\s*[-–]\s*\d+)?\]")
+CITE = re.compile(r"\[(?:([A-Z][A-Z0-9-]{1,15})\s+)?pp?\.?\s*(\d+)(?:\s*[-–]\s*\d+)?\]")
 
 
 @dataclass
@@ -31,16 +31,34 @@ def present_assets_tool(ids: list[str]) -> dict:
                              "required": ["figure_ids"]}}
 
 
+def _cite_target(ref: str | None, page: int, chunks: list):
+    """Return (doc_id, section_path) for a citation, or (None, None) when it can't be placed unambiguously."""
+    def has(c):
+        return c.page_start <= page <= c.page_end
+    if ref:
+        docs = [c for c in chunks if c.doc_id.upper() == ref]
+        if not docs:
+            return None, None
+        c = next((c for c in docs if has(c)), None)
+        return docs[0].doc_id, (c.section_path if c else None)
+    c = next((c for c in chunks if has(c) and getattr(c, "doc_role", "manual") == "manual"), None)
+    if c is None:
+        hits = [c for c in chunks if has(c)]
+        if hits and len({c.doc_id for c in hits}) == 1:
+            c = hits[0]
+    return (c.doc_id, c.section_path) if c else (None, None)
+
+
 def citations_from(text: str, chunks: list) -> list[dict]:
     out: list[dict] = []
-    seen: set[int] = set()
+    seen: set[tuple[str | None, int]] = set()
     for m in CITE.finditer(text):
-        page = int(m.group(1))
-        if page in seen:
+        ref, page = m.group(1), int(m.group(2))
+        if (ref, page) in seen:
             continue
-        seen.add(page)
-        c = next((c for c in chunks if c.page_start <= page <= c.page_end), None)
-        out.append({"page": page, "doc_id": c.doc_id if c else None, "section_path": c.section_path if c else None})
+        seen.add((ref, page))
+        doc_id, section = _cite_target(ref, page, chunks)
+        out.append({"page": page, "ref": ref, "doc_id": doc_id, "section_path": section})
     return out
 
 

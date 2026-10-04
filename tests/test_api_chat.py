@@ -25,7 +25,11 @@ class Script:
     def __init__(self):
         self.new_task = False
         self.tools_error = False
-        self.chat_error = False
+        self.chat_error = False       # raise after the answer chunks
+        self.fail_before_chunks = False
+        self.empty_answer = False
+        self.tools_started = False
+        self.tools_finished = False
         self.delay = 0.0
         self.client = FakeAsyncAnthropic(self.create, self.stream)
 
@@ -44,9 +48,13 @@ class Script:
 
     def stream(self, kw):
         chunks = list(ANSWER)
-        if self.chat_error:
+        if self.empty_answer:
+            chunks = []
+        if self.fail_before_chunks:
+            chunks = [anthropic.APIConnectionError(request=httpx.Request("POST", "https://api.anthropic.com"))]
+        elif self.chat_error:
             chunks.append(anthropic.APIConnectionError(request=httpx.Request("POST", "https://api.anthropic.com")))
-        final = message(text_block("".join(ANSWER)),
+        final = message(*([] if self.empty_answer else [text_block("".join(ANSWER))]),
                         tool_use("present_assets", {"figure_ids": ["man/crosshead-alignment-tool"]}),
                         stop_reason="tool_use", u=usage(7000, 900))
         return chunks, final, self.delay
@@ -97,7 +105,7 @@ def test_first_question_streams_answer_assets_tools(client, settings, script):
     assert "".join(d["text"] for k, d in ev if k == "token") == "".join(ANSWER)
     assets = next(d for k, d in ev if k == "assets")
     assert assets["figure_ids"] == ["man/crosshead-alignment-tool"]
-    assert assets["citations"] == [{"page": 88, "doc_id": "man",
+    assert assets["citations"] == [{"page": 88, "ref": None, "doc_id": "man",
                                     "section_path": "Section 4 - Part Replacement › Crosshead Installation"}]
     assert assets["figures"][0]["image_url"] == "/content/figures/man/crosshead-alignment-tool.png"
     tools = next(d for k, d in ev if k == "tools")
@@ -138,12 +146,77 @@ def test_tools_failure_does_not_break_chat(client, settings, script):
     assert client.get("/api/me").json()["remaining"] == 2  # still charged: the answer succeeded
 
 
-def test_chat_failure_releases_quota(client, settings, script):
-    script.chat_error = True
+def test_chat_failure_before_any_token_releases_quota(client, settings, script):
+    script.fail_before_chunks = True
     ev = events(ask(client))
     assert ("error", {"code": "upstream_error", "message": "The assistant is busy. Please try again."}) in ev
     assert client.get("/api/me").json()["remaining"] == 3
     assert db(settings).execute("SELECT COUNT(*) FROM messages WHERE role='assistant'").fetchone()[0] == 0
+
+
+def test_chat_failure_mid_answer_keeps_charge(client, settings, script):
+    script.chat_error = True
+    ev = events(ask(client))
+    assert ("error", {"code": "upstream_error", "message": "The assistant is busy. Please try again."}) in ev
+    assert client.get("/api/me").json()["remaining"] == 2  # answer text was already delivered
+    assert db(settings).execute("SELECT COUNT(*) FROM messages WHERE role='assistant'").fetchone()[0] == 0
+
+
+def test_empty_answer_stored_with_placeholder_and_skipped_in_history(client, settings, script):
+    script.empty_answer = True
+    cid = events(ask(client))[0][1]["conversation_id"]
+    row = db(settings).execute("SELECT content FROM messages WHERE role='assistant'").fetchone()
+    assert row["content"] == "(no text answer)"
+    db(settings).execute("UPDATE messages SET content = '' WHERE role='assistant'")  # legacy empty rows
+    script.empty_answer = False
+    assert events(ask(client, "and the pin?", cid))[-1][0] == "done"
+    chat_reqs = [kw for kw in script.client.messages.calls if "present_assets" in script.names(kw)]
+    assert all(m["content"].strip() for m in chat_reqs[-1]["messages"])
+
+
+async def test_chat_failure_cancels_tools_task(settings, script):
+    build_tiny_content(settings.content_dir)
+    approve_in_db(settings, "tech@example.com")
+    conn = db(settings)
+    assert quota.try_reserve(conn, "tech@example.com", settings, utcnow()).allowed
+    conn.execute("INSERT INTO conversations (id, email, set_id, created_at) VALUES ('c1','tech@example.com','demo','x')")
+    script.fail_before_chunks = True
+    script.delay = 0.15  # let the tools call start before chat fails
+    fast_create = script.client.messages.create
+
+    async def slow_tools_create(**kw):
+        if "submit_tools" in script.names(kw):
+            script.tools_started = True
+            await asyncio.sleep(0.5)
+            script.tools_finished = True
+        return await fast_create(**kw)
+
+    script.client.messages.create = slow_tools_create
+    retriever = Retriever.open(settings.content_dir, HashEmbedder())
+    turn = Turn(settings=settings, llm=script.client, retriever=retriever, conn=conn, email="tech@example.com",
+                is_admin=False, set_id="demo", set_info=retriever.get_set("demo"), conversation_id="c1",
+                history=[], message="How do I install the crosshead?", remaining=2,
+                icon_keys=["oem-tool", "generic-tool"])
+    out = [e async for e in run_turn(turn)]
+    assert any(e.startswith("event: error") for e in out) and out[-1].startswith("event: done")
+    await asyncio.sleep(0.6)
+    assert script.tools_started and not script.tools_finished
+    assert not any(e.startswith("event: tools") for e in out)
+
+
+def test_retriever_warmed_at_startup(make_client, settings):
+    build_tiny_content(settings.content_dir)
+    app_client = make_client(embedder=HashEmbedder())
+    assert app_client.app.state.retriever is None
+    with app_client:  # runs lifespan startup
+        assert app_client.app.state.retriever is not None
+        assert ("demo", "chunks") in app_client.app.state.retriever._matrices
+
+
+def test_startup_without_content_skips_warm(make_client):
+    c = make_client()
+    with c:
+        assert c.app.state.retriever is None
 
 
 def test_quota_exceeded_makes_no_llm_calls(client, settings, script):
@@ -198,7 +271,7 @@ def test_retry_returns_stored_tools_without_llm_call(client, script):
     assert script.count("submit_tools") == before
 
 
-async def test_disconnect_releases_quota(settings, script):
+async def test_disconnect_before_tokens_releases_quota(settings, script):
     build_tiny_content(settings.content_dir)
     approve_in_db(settings, "tech@example.com")
     conn = db(settings)
@@ -213,13 +286,31 @@ async def test_disconnect_releases_quota(settings, script):
     gen = run_turn(turn)
     first = await gen.__anext__()
     assert first.startswith("event: meta")
-    await gen.__anext__()  # next event (a token or the tools result)
-    await gen.aclose()     # browser went away
+    await gen.aclose()     # browser went away before any answer text
     check = db(settings)
     assert check.execute("SELECT questions FROM usage_daily").fetchone()["questions"] == 0
     assert check.execute("SELECT COUNT(*) FROM messages").fetchone()[0] == 0
     await asyncio.sleep(0.1)  # cancelled tasks must not write afterwards
     assert check.execute("SELECT COUNT(*) FROM messages").fetchone()[0] == 0
+
+
+async def test_disconnect_after_tokens_keeps_charge(settings, script):
+    build_tiny_content(settings.content_dir)
+    approve_in_db(settings, "tech@example.com")
+    conn = db(settings)
+    assert quota.try_reserve(conn, "tech@example.com", settings, utcnow()).allowed
+    conn.execute("INSERT INTO conversations (id, email, set_id, created_at) VALUES ('c1','tech@example.com','demo','x')")
+    retriever = Retriever.open(settings.content_dir, HashEmbedder())
+    turn = Turn(settings=settings, llm=script.client, retriever=retriever, conn=conn, email="tech@example.com",
+                is_admin=False, set_id="demo", set_info=retriever.get_set("demo"), conversation_id="c1",
+                history=[], message="How do I install the crosshead?", remaining=2,
+                icon_keys=["oem-tool", "generic-tool"])
+    gen = run_turn(turn)
+    assert (await gen.__anext__()).startswith("event: meta")
+    while not (await gen.__anext__()).startswith("event: token"):
+        pass
+    await gen.aclose()  # left right after receiving answer text: cannot get it free
+    assert db(settings).execute("SELECT questions FROM usage_daily").fetchone()["questions"] == 1
 
 
 async def test_answer_kept_when_client_leaves_during_tools(settings, script):

@@ -57,6 +57,16 @@ def test_skip_vision(mini):
     assert s.vision_cost == 0 and s.figures >= 2
 
 
+def test_skip_vision_reuses_cached_descriptions(mini):
+    client = FakeAnthropic(lambda kw: message(tool_use("record_figure", VISION)))
+    ingest_set(mini, "mini", force=False, client=client, embedder=HashEmbedder())
+    s = ingest_set(mini, "mini", force=True, client=None, embedder=HashEmbedder())
+    assert s.vision_cost == 0 and "vision_failed" not in s.flagged
+    conn = connect_content(mini.content_dir / "content.db", readonly=True)
+    row = conn.execute("SELECT description FROM assets WHERE id='er-130/compressor-guide-compartments'").fetchone()
+    assert row["description"] == "A test description."
+
+
 def test_ingest_detects_override_changes(mini):
     client = FakeAnthropic(lambda kw: message(tool_use("record_figure", VISION)))
     s1 = ingest_set(mini, "mini", force=False, client=client, embedder=HashEmbedder())

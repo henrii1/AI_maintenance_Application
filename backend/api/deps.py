@@ -83,7 +83,11 @@ def set_cookie(response, settings: Settings, name: str, value: str, max_age: int
 
 
 def get_retriever(request: Request) -> Retriever:
-    state = request.app.state
+    return get_retriever_for(request.app)
+
+
+def get_retriever_for(app) -> Retriever:
+    state = app.state
     if state.retriever is None:
         with _retriever_lock:
             if state.retriever is None:

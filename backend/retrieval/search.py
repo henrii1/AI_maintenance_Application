@@ -37,6 +37,7 @@ class ChunkHit:
     figure_refs: tuple[str, ...]
     has_warning: bool
     score: float
+    doc_role: str = "manual"
 
 
 @dataclass(frozen=True)
@@ -88,6 +89,12 @@ class Retriever:
     def _q(self, sql: str, params=()) -> list:
         with self._lock:
             return self.conn.execute(sql, params).fetchall()
+
+    def warm(self) -> None:
+        """Build the embedding matrices for every set so the first request is fast."""
+        for st in self.sets():
+            for table in ("chunks", "assets"):
+                self._matrix(st["id"], table)
 
     # ---- sets & documents -------------------------------------------------------------------------
     def sets(self) -> list[dict]:
@@ -142,12 +149,12 @@ class Retriever:
             return []
         ids = [i for i, _ in scored]
         rows = {r["id"]: r for r in self._q(
-            f"SELECT c.*, d.title AS doc_title FROM chunks c JOIN documents d ON d.id = c.doc_id"
+            f"SELECT c.*, d.title AS doc_title, d.role AS doc_role FROM chunks c JOIN documents d ON d.id = c.doc_id"
             f" WHERE c.id IN ({','.join('?' * len(ids))})", ids)}
         return [ChunkHit(id=r["id"], doc_id=r["doc_id"], doc_title=r["doc_title"], section_path=r["section_path"],
                          page_start=r["page_start"], page_end=r["page_end"], text=r["text"],
                          figure_refs=tuple(json.loads(r["figure_refs"])), has_warning=bool(r["has_warning"]),
-                         score=s)
+                         score=s, doc_role=r["doc_role"])
                 for i, s in scored if (r := rows.get(i))]
 
     def search_chunks(self, set_id: str, query: str, k: int = 8) -> list[ChunkHit]:

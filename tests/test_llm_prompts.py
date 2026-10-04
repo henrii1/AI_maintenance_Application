@@ -22,7 +22,7 @@ HISTORY = [{"role": "user", "content": "How do I install the crosshead?"},
 def test_system_prompts_are_grounded():
     s = chat_system(EQUIP)
     assert "Ariel KBE Reciprocating Compressor" in s and "Ariel Corporation" in s
-    assert "[p.88]" in s and "Not in the provided documentation" in s and "present_assets" in s
+    assert "[p.88]" in s and "[ER-140 p.2]" in s and "[p.87-88]" in s and "Not in the provided documentation" in s and "present_assets" in s
     t = tools_system(EQUIP)
     assert "submit_tools" in t and '"manual"' in t and "generic-tool" in t
 
@@ -31,6 +31,10 @@ def test_context_formatting():
     ex = format_excerpts([CHUNK])
     assert 'doc="KBE Maintenance & Repair Manual"' in ex and 'pages="87-88"' in ex and 'warning="yes"' in ex
     assert "Lay a 3/16 inch plate." in ex
+    assert "ref=" not in ex  # manual excerpts are cited as plain [p.N]
+    er = ChunkHit(id="e:1", doc_id="er-140", doc_title="ER-140", section_path="S", page_start=2, page_end=2,
+                  text="x", figure_refs=(), has_warning=False, score=0.1, doc_role="reference")
+    assert 'doc="ER-140" ref="ER-140" section="S" pages="2"' in format_excerpts([er])
     figs = format_figures([FIG])
     assert "kbe-manual/crosshead-installation" in figs and "p.88" in figs and "exploded_parts" in figs
     assert format_figures([]) == "(no figures available)"

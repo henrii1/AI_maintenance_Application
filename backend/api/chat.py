@@ -27,6 +27,7 @@ router = APIRouter()
 HISTORY_MESSAGES = 12  # last 6 turns
 SSE_HEADERS = {"Cache-Control": "no-cache", "X-Accel-Buffering": "no"}
 BUSY = "The assistant is busy. Please try again."
+NO_TEXT = "(no text answer)"
 
 
 class ChatIn(BaseModel):
@@ -82,7 +83,7 @@ def _owned_conversation(conn, conversation_id: str, email: str, set_id: str | No
 def _history(conn, conversation_id: str) -> list[dict]:
     rows = conn.execute("SELECT role, content FROM messages WHERE conversation_id = ? ORDER BY id DESC LIMIT ?",
                         (conversation_id, HISTORY_MESSAGES)).fetchall()
-    return [{"role": r["role"], "content": r["content"]} for r in reversed(rows)]
+    return [{"role": r["role"], "content": r["content"]} for r in reversed(rows) if (r["content"] or "").strip()]
 
 
 async def _tools_call(t: Turn, query: str, chunks: list, candidates: list) -> tuple[ToolsResult, list[dict]]:
@@ -103,6 +104,7 @@ async def _tools_call(t: Turn, query: str, chunks: list, candidates: list) -> tu
 async def run_turn(t: Turn) -> AsyncIterator[str]:
     s = t.settings
     completed = False
+    sent_tokens = False  # once any answer text reached the client the question is spent
     tasks: list[asyncio.Task] = []
     try:
         yield sse("meta", {"conversation_id": t.conversation_id, "remaining_today": t.remaining})
@@ -154,6 +156,7 @@ async def run_turn(t: Turn) -> AsyncIterator[str]:
             if kind == "end":
                 open_jobs -= 1
             elif source == "chat" and kind == "token":
+                sent_tokens = True
                 yield sse("token", {"text": payload})
             elif source == "chat" and kind == "assets":
                 assets = payload
@@ -170,12 +173,14 @@ async def run_turn(t: Turn) -> AsyncIterator[str]:
                 cur = t.conn.execute(
                     "INSERT INTO messages (conversation_id, role, content, query, assets_json, tools_json, created_at)"
                     " VALUES (?, 'assistant', ?, ?, ?, ?, ?)",
-                    (t.conversation_id, answer["text"], rw.query, json.dumps(assets),
+                    (t.conversation_id, answer["text"] if answer["text"].strip() else NO_TEXT, rw.query, json.dumps(assets),
                      json.dumps(tools_groups) if tools_groups is not None else None, now))
                 assistant_id = cur.lastrowid
                 completed = True
             elif source == "chat" and kind == "error":
                 chat_failed = True
+                for task in tasks[1:]:  # no answer to pair tools with: stop spending on them
+                    task.cancel()
                 yield sse("error", {"code": "upstream_error", "message": BUSY})
             elif source == "tools" and kind == "result":
                 result, figures = payload
@@ -192,7 +197,7 @@ async def run_turn(t: Turn) -> AsyncIterator[str]:
     finally:
         for task in tasks:
             task.cancel()
-        if not completed:
+        if not completed and not sent_tokens:
             quota.release(t.conn, t.email, utcnow())
         t.conn.close()
 

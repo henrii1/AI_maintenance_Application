@@ -38,6 +38,8 @@ uv run python scripts/eval_answers.py  # answer quality against the real API (~$
 3. **Variables:** `ANTHROPIC_API_KEY`, `ADMIN_PASSWORD`, `ADMIN_EMAIL`, `SESSION_SECRET` (random), `PUBLIC_BASE_URL` (the Railway URL, `https://…`), and optionally `RESEND_API_KEY` and `EMAIL_FROM` (needs a domain verified in Resend).
 4. **Settings → Networking → Generate Domain.** Set `PUBLIC_BASE_URL` to it and redeploy.
 5. Check `https://<domain>/healthz` returns `{"ok": true, ...}` (HTTP 503 if content or the app DB is missing, which Railway's healthcheck treats as a failed deploy). Then sign in at `/admin`.
+6. Run exactly one replica (rate limiters are in-memory and the DB is SQLite).
+7. After deploying, verify rate limiting sees real client IPs (Railway may add proxy hops, so the `X-Forwarded-For` entry used may not be the client): request an access code repeatedly from one device and confirm the limit triggers for you only.
 
 The app refuses to start over https if `SESSION_SECRET`, `ADMIN_PASSWORD` or `ANTHROPIC_API_KEY` is missing.
 
