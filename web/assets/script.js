@@ -41,15 +41,27 @@ document.addEventListener('DOMContentLoaded', function () {
     revealEls.forEach(function (el) { el.classList.add('in'); });
   }
 
-  // Demo request / early access / contact forms — placeholder submit handling
+  // Demo request / early access / contact forms.
+  // Forms marked data-access-form create a real demo access request; others keep placeholder behaviour.
   document.querySelectorAll('form[data-form]').forEach(function (form) {
     form.addEventListener('submit', function (e) {
       e.preventDefault();
       var success = form.parentElement.querySelector('.form-success') || form.querySelector('.form-success');
-      form.querySelectorAll('input, textarea, select').forEach(function (f) { f.disabled = true; });
       var btn = form.querySelector('button[type="submit"]');
-      if (btn) { btn.disabled = true; btn.textContent = 'Submitted'; }
-      if (success) success.classList.add('show');
+      function done() {
+        form.querySelectorAll('input, textarea, select').forEach(function (f) { f.disabled = true; });
+        if (btn) { btn.disabled = true; btn.textContent = 'Submitted'; }
+        if (success) success.classList.add('show');
+      }
+      if (!form.hasAttribute('data-access-form')) { done(); return; }
+      var data = new FormData(form);
+      fetch('/api/access/request', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: data.get('email'), name: data.get('name'), company: data.get('company'),
+                               note: data.get('title') ? 'Job title: ' + data.get('title') : '' })
+      }).then(function (r) {
+        if (r.ok) { done(); } else if (btn) { btn.textContent = 'Please check the form and try again'; }
+      }).catch(function () { if (btn) { btn.textContent = 'Network error, try again'; } });
     });
   });
 });

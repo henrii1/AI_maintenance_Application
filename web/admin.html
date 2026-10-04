@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex">
+<title>Onesi Admin</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/style.css">
+<link rel="stylesheet" href="assets/demo.css">
+<style>
+  .admin { max-width: 1100px; margin: 0 auto; padding: 20px 16px; width: 100%; }
+  .stats { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
+  .stat { background: var(--white); border: 1px solid var(--line); border-radius: 10px; padding: 10px 16px; }
+  .stat b { display: block; font-family: var(--font-head); font-size: 20px; }
+  .stat span { font-size: 12px; color: var(--steel); }
+  .admin .seg { margin-bottom: 12px; background: var(--white); }
+  .table-wrap { overflow-x: auto; background: var(--white); border: 1px solid var(--line); border-radius: 10px; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { font-size: 12px; color: var(--steel); font-weight: 600; }
+  td .note { color: var(--steel); font-size: 13px; }
+  td .err { color: #b42318; font-size: 12px; }
+  .actions { display: flex; gap: 6px; flex-wrap: wrap; }
+  .actions button { font: inherit; font-size: 12.5px; padding: 5px 10px; border-radius: 6px; border: 1px solid var(--line); background: var(--white); cursor: pointer; }
+  .actions button.primary { background: var(--navy); color: var(--white); border-color: var(--navy); }
+  .limit { width: 84px; padding: 4px 6px; font: inherit; }
+  dialog { max-width: 760px; width: 92vw; border: 1px solid var(--line); border-radius: 12px; }
+  dialog .turn { border-bottom: 1px solid var(--line); padding: 8px 0; font-size: 14px; white-space: pre-wrap; }
+</style>
+</head>
+<body class="demo-body">
+<header class="app-bar">
+  <a href="index.html" class="brand">ONESI<span class="dot">.</span></a><span class="who">Admin</span>
+  <div class="app-bar-right"><a class="btn-link" href="/demo">Open demo</a><button id="logout" class="btn-link" type="button" hidden>Sign out</button></div>
+</header>
+
+<main class="gate" id="login-view" hidden>
+  <section class="gate-card">
+    <h1>Admin sign in</h1>
+    <form id="login-form">
+      <label>Password<input name="password" type="password" required autocomplete="current-password"></label>
+      <p class="form-error" role="alert" hidden></p>
+      <button class="btn btn-primary" type="submit">Sign in</button>
+    </form>
+  </section>
+</main>
+
+<main class="admin" id="admin-view" hidden>
+  <div class="stats" id="stats"></div>
+  <div class="seg" id="status-tabs">
+    <button type="button" data-status="pending" aria-pressed="true">Pending</button>
+    <button type="button" data-status="approved" aria-pressed="false">Approved</button>
+    <button type="button" data-status="closed" aria-pressed="false">Rejected / revoked</button>
+  </div>
+  <div class="table-wrap"><table><thead id="thead"></thead><tbody id="rows"></tbody></table></div>
+</main>
+
+<dialog id="conv-dialog"><form method="dialog" style="text-align:right"><button class="btn-link">Close</button></form><div id="conv-body"></div></dialog>
+<script type="module" src="assets/admin.js"></script>
+</body>
+</html>

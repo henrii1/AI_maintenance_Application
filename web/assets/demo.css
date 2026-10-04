@@ -122,3 +122,7 @@
   .workspace[data-active="tools"] .pane-tools { display: flex; }
   .demo-body .gate-card { padding: 22px 16px; }
 }
+
+/* Disabled controls */
+.btn:disabled, .btn-link:disabled, .chip:disabled, .seg button:disabled { opacity: .5; cursor: not-allowed; }
+.btn-primary:disabled, .btn-primary:disabled:hover { transform: none; box-shadow: none; }

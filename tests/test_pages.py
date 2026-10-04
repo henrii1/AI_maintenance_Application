@@ -5,3 +5,12 @@ def test_demo_and_admin_pages_served(make_client):
     assert c.get("/assets/demo.css").status_code == 200
     assert c.get("/assets/demo.js").status_code == 200
     assert c.get("/assets/icons.json").json()["generic-tool"]
+
+
+def test_admin_page_and_prototype_link(make_client):
+    c = make_client()
+    admin = c.get("/admin")
+    assert admin.status_code == 200 and "assets/admin.js" in admin.text
+    proto = c.get("/prototype.html").text
+    assert 'href="/demo"' in proto and "Prototype Coming Soon" not in proto
+    assert "data-access-form" in proto
