@@ -1,0 +1,13 @@
+.git
+.venv
+.cache
+.env
+data
+corpus
+resources
+docs
+tests
+scripts
+**/__pycache__
+**/.DS_Store
+content/review

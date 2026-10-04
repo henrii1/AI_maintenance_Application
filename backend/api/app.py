@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from fastapi import FastAPI
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from backend.auth.email import Mailer
@@ -49,7 +49,8 @@ def create_app(settings: Settings | None = None, *, retriever=None, llm=None, ma
             db_ok = True
         except Exception:
             db_ok = False
-        return {"ok": content_ok and db_ok, "content": content_ok, "app_db": db_ok}
+        ok = content_ok and db_ok
+        return JSONResponse({"ok": ok, "content": content_ok, "app_db": db_ok}, status_code=200 if ok else 503)
 
     @app.get("/demo", include_in_schema=False)
     def demo_page():

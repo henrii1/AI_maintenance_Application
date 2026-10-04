@@ -8,6 +8,15 @@ def test_healthz_and_site(make_client):
     assert "ONESI" in c.get("/index.html").text
 
 
+def test_healthz_503_until_content_built(make_client, settings):
+    from tests.content_fixture import build_tiny_content
+    r = make_client().get("/healthz")
+    assert r.status_code == 503 and r.json()["content"] is False
+    build_tiny_content(settings.content_dir)
+    r = make_client().get("/healthz")
+    assert r.status_code == 200 and r.json()["ok"] is True
+
+
 def test_request_access_notifies_admin_once(make_client):
     c = make_client()
     body = {"email": "tech@example.com", "name": "Tess", "company": "Acme", "note": "pumps"}
