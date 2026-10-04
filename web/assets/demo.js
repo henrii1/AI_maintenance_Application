@@ -20,6 +20,7 @@ async function errorText(resp) {
 function showStep(step) {
   $("#gate").hidden = false;
   $("#app").hidden = true;
+  $("#new-code-note").hidden = true;
   $$(".gate-card").forEach(c => { c.hidden = c.dataset.step !== step; });
 }
 
@@ -29,37 +30,62 @@ function setError(form, msg) {
   el.hidden = !msg;
 }
 
+const GENERIC_ERROR = "Something went wrong. Please try again.";
+
+// Run fn with the form's submit button disabled; any throw becomes a visible error.
+async function guarded(form, fn) {
+  const btn = $("button[type=submit]", form);
+  if (btn.disabled) return;
+  btn.disabled = true;
+  try { await fn(); }
+  catch { setError(form, GENERIC_ERROR); }
+  finally { btn.disabled = false; }
+}
+
 function bindGate() {
   $$("[data-goto]").forEach(a => a.addEventListener("click", e => { e.preventDefault(); showStep(a.dataset.goto); }));
 
-  $("#request-form").addEventListener("submit", async e => {
+  $("#request-form").addEventListener("submit", e => {
     e.preventDefault();
     const form = e.currentTarget;
     if (!form.reportValidity()) return;
-    const data = Object.fromEntries(new FormData(form));
-    const resp = await api("/api/access/request", data);
-    if (resp.ok) { $("#code-form").email.value = data.email; showStep("requested"); }
-    else setError(form, await errorText(resp));
+    guarded(form, async () => {
+      setError(form, "");
+      const data = Object.fromEntries(new FormData(form));
+      const resp = await api("/api/access/request", data);
+      if (resp.ok) { $("#code-form").email.value = data.email; showStep("requested"); }
+      else setError(form, await errorText(resp));
+    });
   });
 
-  $("#code-form").addEventListener("submit", async e => {
+  $("#code-form").addEventListener("submit", e => {
     e.preventDefault();
     const form = e.currentTarget;
     if (!form.reportValidity()) return;
-    setError(form, "");
-    const resp = await api("/api/access/redeem", Object.fromEntries(new FormData(form)));
-    if (!resp.ok) { setError(form, await errorText(resp)); return; }
-    history.replaceState(null, "", location.pathname);
-    const me = await api("/api/me");
-    if (me.ok) startApp(await me.json());
+    guarded(form, async () => {
+      setError(form, "");
+      $("#new-code-note").hidden = true;
+      const resp = await api("/api/access/redeem", Object.fromEntries(new FormData(form)));
+      if (!resp.ok) { setError(form, await errorText(resp)); return; }
+      const me = await api("/api/me");
+      if (!me.ok) { setError(form, GENERIC_ERROR); return; }
+      history.replaceState(null, "", location.pathname);
+      await startApp(await me.json());
+    });
   });
 
+  let newCodePending = false;
   $("#new-code").addEventListener("click", async e => {
     e.preventDefault();
     const form = $("#code-form");
-    if (!form.email.reportValidity()) return;
-    await api("/api/access/new-code", { email: form.email.value });
-    $("#new-code-note").hidden = false;
+    if (newCodePending || !form.email.reportValidity()) return;
+    newCodePending = true;
+    setError(form, "");
+    try {
+      await api("/api/access/new-code", { email: form.email.value });
+      $("#new-code-note").hidden = false;
+    } catch { setError(form, GENERIC_ERROR); }
+    finally { newCodePending = false; }
   });
 }
 

@@ -32,6 +32,8 @@
 .hp { position: absolute; left: -9999px; }
 .gate-switch, .form-note { font-size: 14px; color: var(--steel); margin-top: 14px; }
 .form-error { color: #b42318; font-size: 14px; margin: 0; }
+.gate-switch a { color: var(--cyan-deep); text-decoration: underline; font-weight: 500; }
+.gate-switch a:hover { color: var(--navy); }
 
 /* ---- workspace ---- */
 .workspace { flex: 1; display: grid; grid-template-columns: 30fr 40fr 30fr; gap: 14px; padding: 14px; min-height: 0; height: calc(100vh - 56px); }
@@ -48,6 +50,7 @@
 .viewer { flex: 1; min-height: 0; display: grid; place-items: center; padding: 12px; overflow: hidden; }
 .viewer img { max-width: 100%; max-height: 100%; object-fit: contain; cursor: zoom-in; }
 .viewer-meta { padding: 8px 16px; font-size: 13px; color: var(--steel); border-top: 1px solid var(--line); }
+.viewer-meta:empty { display: none; }
 .viewer-meta b { color: var(--navy); display: block; font-size: 14px; }
 .viewer-meta a { color: var(--cyan-deep); }
 .thumbs { display: flex; gap: 8px; padding: 10px 12px; overflow-x: auto; border-top: 1px solid var(--line); min-height: 0; }
