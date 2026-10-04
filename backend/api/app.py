@@ -22,7 +22,7 @@ class Limiters:
 
 
 def create_app(settings: Settings | None = None, *, retriever=None, llm=None, mailer=None, embedder=None) -> FastAPI:
-    from backend.api import access  # local imports avoid cycles with deps
+    from backend.api import access, admin, assets, chat  # local imports avoid cycles with deps
 
     settings = settings or get_settings()
     settings.check_production()
@@ -35,12 +35,7 @@ def create_app(settings: Settings | None = None, *, retriever=None, llm=None, ma
     app.state.embedder = embedder
     connect_app(Path(settings.data_dir) / "app.db").close()  # run migrations at startup
 
-    app.include_router(access.router)
-    for name in ("admin", "assets", "chat"):  # routers added by later tasks
-        try:
-            module = __import__(f"backend.api.{name}", fromlist=["router"])
-        except ModuleNotFoundError:
-            continue
+    for module in (access, admin, assets, chat):
         app.include_router(module.router)
 
     web = Path(settings.web_dir)
