@@ -138,15 +138,20 @@ def test_reserve_is_atomic_at_limit(db, settings):
     quota.try_reserve(c, EMAIL, settings, NOW)  # one question left
     barrier = threading.Barrier(2)
     results = []
+    exceptions = []
 
     def worker():
-        conn = connect_app(db)
-        barrier.wait()
-        results.append(quota.try_reserve(conn, EMAIL, settings, NOW).allowed)
+        try:
+            conn = connect_app(db)
+            barrier.wait()
+            results.append(quota.try_reserve(conn, EMAIL, settings, NOW).allowed)
+        except Exception as e:
+            exceptions.append(e)
 
     threads = [threading.Thread(target=worker) for _ in range(2)]
     [t.start() for t in threads]
     [t.join() for t in threads]
+    assert not exceptions, f"Exceptions in workers: {exceptions}"
     assert sorted(results) == [False, True]
 
 
@@ -157,3 +162,79 @@ def test_rate_limiter_window():
     assert rl.hit("other")
     t[0] = 61
     assert rl.hit("k")
+
+
+def test_concurrent_redeem_is_single_use(db, settings):
+    c = connect_app(db)
+    approve(c)
+    code = codes.issue_code(c, EMAIL, NOW)
+    barrier = threading.Barrier(2)
+    results = []
+    exceptions = []
+
+    def worker():
+        try:
+            conn = connect_app(db)
+            barrier.wait()
+            results.append(codes.redeem_code(conn, EMAIL, code, "1.1.1.1", NOW))
+        except Exception as e:
+            exceptions.append(e)
+
+    threads = [threading.Thread(target=worker) for _ in range(2)]
+    [t.start() for t in threads]
+    [t.join() for t in threads]
+    assert not exceptions, f"Exceptions in workers: {exceptions}"
+    assert sorted([r.value for r in results]) == ["invalid", "ok"]
+
+
+def test_lockout_ignores_email_case(conn):
+    approve(conn)
+    code = codes.issue_code(conn, EMAIL, NOW)
+    for i in range(5):
+        assert codes.redeem_code(conn, " TECH@Example.COM ", "BBBB-BBBB", "ip", NOW + timedelta(minutes=i)) is RedeemResult.INVALID
+    assert codes.redeem_code(conn, EMAIL, code, "ip", NOW + timedelta(minutes=6)) is RedeemResult.LOCKED
+
+
+def test_secrets_stored_only_as_hashes(conn):
+    approve(conn)
+    code = codes.issue_code(conn, EMAIL, NOW)
+    token = sessions.create_session(conn, EMAIL, NOW)
+
+    # Verify code is stored only as hash
+    code_row = conn.execute("SELECT code_hash FROM access_codes WHERE email = ?", (EMAIL,)).fetchone()
+    assert code_row["code_hash"] == codes.hash_secret(code)
+    assert code not in code_row["code_hash"]
+
+    # Verify no plaintext code appears in any access_codes column
+    all_code_columns = conn.execute(f"PRAGMA table_info(access_codes)").fetchall()
+    for col_row in all_code_columns:
+        col_name = col_row["name"]
+        col_data = conn.execute(f"SELECT {col_name} FROM access_codes WHERE email = ?", (EMAIL,)).fetchone()
+        if col_data[col_name] is not None:
+            assert code not in str(col_data[col_name])
+
+    # Verify token is stored only as hash
+    token_row = conn.execute("SELECT token_hash FROM sessions WHERE email = ?", (EMAIL,)).fetchone()
+    assert token_row["token_hash"] == codes.hash_secret(token)
+    assert token not in token_row["token_hash"]
+
+    # Verify no plaintext token appears in any sessions column
+    all_token_columns = conn.execute(f"PRAGMA table_info(sessions)").fetchall()
+    for col_row in all_token_columns:
+        col_name = col_row["name"]
+        col_data = conn.execute(f"SELECT {col_name} FROM sessions WHERE email = ?", (EMAIL,)).fetchone()
+        if col_data[col_name] is not None:
+            assert token not in str(col_data[col_name])
+
+
+def test_release_never_negative(conn, settings):
+    approve(conn)
+    # Release without prior reserve
+    quota.release(conn, EMAIL, NOW)
+    st = quota.status(conn, EMAIL, settings, NOW)
+    assert st.remaining == 3
+
+    # Release again
+    quota.release(conn, EMAIL, NOW)
+    st = quota.status(conn, EMAIL, settings, NOW)
+    assert st.remaining == 3
