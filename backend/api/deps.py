@@ -38,8 +38,9 @@ def app_db(request: Request):
 
 
 def client_ip(request: Request) -> str:
+    """Extract client IP from X-Forwarded-For header (right-most = seen by our edge proxy) or socket."""
     fwd = request.headers.get("x-forwarded-for")
-    return fwd.split(",")[0].strip() if fwd else (request.client.host if request.client else "unknown")
+    return fwd.split(",")[-1].strip() if fwd else (request.client.host if request.client else "unknown")
 
 
 def admin_signer(settings: Settings) -> TimestampSigner:

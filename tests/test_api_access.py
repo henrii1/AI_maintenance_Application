@@ -85,3 +85,89 @@ def test_production_misconfig_refuses_start(settings):
     bad = settings.model_copy(update={"public_base_url": "https://x.example", "anthropic_api_key": ""})
     with pytest.raises(RuntimeError, match="ANTHROPIC_API_KEY"):
         create_app(bad)
+
+
+def test_spoofed_forwarded_for_still_rate_limited(make_client):
+    import random
+    import string
+    c = make_client()
+    codes = []
+    for i in range(6):
+        random_ip = ".".join(str(random.randint(0, 255)) for _ in range(4))
+        r = c.post("/api/access/request", json={"email": f"u{i}@x.com", "name": "n", "company": "c"},
+                   headers={"X-Forwarded-For": f"{random_ip}, 203.0.113.9"})
+        codes.append(r.status_code)
+    assert codes == [200] * 5 + [429]
+
+
+def test_session_cookie_flags(make_client, settings):
+    from backend.api.app import create_app
+    from backend.auth.email import Mailer
+    from fastapi.testclient import TestClient
+
+    # HTTP settings (secure_cookies = False)
+    c = make_client()
+    code = approve_in_db(settings, "tech@example.com")
+    r = c.post("/api/access/redeem", json={"email": "tech@example.com", "code": code})
+    assert r.status_code == 200
+    cookie_header = r.headers.get("set-cookie")
+    assert cookie_header is not None
+    assert "HttpOnly" in cookie_header
+    assert "SameSite=lax" in cookie_header
+    assert "Secure" not in cookie_header
+
+    # HTTPS settings (secure_cookies = True)
+    https_settings = settings.model_copy(update={"public_base_url": "https://x.example", "anthropic_api_key": "k"})
+    https_client = TestClient(create_app(https_settings, mailer=Mailer(https_settings)))
+    code = approve_in_db(https_settings, "tech@example.com")
+    r = https_client.post("/api/access/redeem", json={"email": "tech@example.com", "code": code})
+    assert r.status_code == 200
+    cookie_header = r.headers.get("set-cookie")
+    assert cookie_header is not None
+    assert "Secure" in cookie_header
+
+
+def test_forged_or_expired_admin_cookie_rejected(make_client, settings, monkeypatch):
+    from itsdangerous import TimestampSigner
+
+    c = make_client()
+
+    # Test forged cookie (signed with different secret)
+    forged = TimestampSigner("wrong", salt="onesi-admin").sign(b"admin").decode()
+    c.cookies.set("onesi_admin", forged)
+    r = c.get("/api/me")
+    assert r.status_code == 401
+
+    # Test expired cookie (signed with right secret but max_age = -1)
+    monkeypatch.setattr("backend.api.deps.ADMIN_MAX_AGE", -1)
+    from backend.api.deps import admin_signer
+    valid_cookie = admin_signer(settings).sign(b"admin").decode()
+    c.cookies.set("onesi_admin", valid_cookie)
+    r = c.get("/api/me")
+    assert r.status_code == 401
+
+    # Test valid fresh cookie
+    monkeypatch.setattr("backend.api.deps.ADMIN_MAX_AGE", 12 * 3600)
+    valid_cookie = admin_signer(settings).sign(b"admin").decode()
+    c.cookies.set("onesi_admin", valid_cookie)
+    r = c.get("/api/me")
+    assert r.status_code == 200
+    assert r.json()["is_admin"] is True
+
+
+def test_known_and_unknown_emails_get_identical_responses(make_client, settings):
+    c = make_client()
+
+    # Request access: existing vs new email
+    r1 = c.post("/api/access/request", json={"email": "tech@example.com", "name": "Tess", "company": "Acme"})
+    r2 = c.post("/api/access/request", json={"email": "tech@example.com", "name": "Tess", "company": "Acme"})
+    r3 = c.post("/api/access/request", json={"email": "other@example.com", "name": "Other", "company": "Corp"})
+    assert r1.status_code == r3.status_code == 200
+    assert r1.json() == r3.json()
+
+    # New-code: approved vs unknown email
+    approve_in_db(settings, "approved@x.com")
+    r_approved = c.post("/api/access/new-code", json={"email": "approved@x.com"})
+    r_unknown = c.post("/api/access/new-code", json={"email": "unknown@x.com"})
+    assert r_approved.status_code == r_unknown.status_code == 200
+    assert r_approved.json() == r_unknown.json()
