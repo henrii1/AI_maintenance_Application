@@ -157,9 +157,13 @@ def extract_figures(doc: pymupdf.Document, doc_id: str, role: str, sections: lis
                 fid = unique(f"{doc_id}/p{n}-image-{k}")
                 if override(fid).get("exclude"):
                     continue
+                flags = ["uncaptioned"]
+                if override(fid).get("bbox"):
+                    rect = pymupdf.Rect(override(fid)["bbox"])
+                    flags.append("overridden")
                 section = section_at(sections, n, rect.y0)
                 assets.append(Asset(
                     id=fid, doc_id=doc_id, asset_type="figure",
                     caption=f"{section.split(' › ')[-1]} (image, p.{n})", source_caption="",
-                    page=n, bbox=tuple(rect), section_path=section, flags=["uncaptioned"]))
+                    page=n, bbox=tuple(rect), section_path=section, flags=flags))
     return assets, problems

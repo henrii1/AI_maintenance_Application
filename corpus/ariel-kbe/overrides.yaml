@@ -11,3 +11,9 @@ figures:
     bbox: [56, 58, 741, 475]
   kbe-manual/position-piston-at-outer-dead-center:
     bbox: [306, 106, 556, 442]
+  kbe-manual/oil-passages:
+    bbox: [311.25, 398.5, 555.31, 613.14]
+  er-063/p3-image-1:
+    bbox: [98.69, 137.89, 525.31, 570.0]
+  er-063/p12-image-1:
+    bbox: [306.0, 184.09, 555.31, 392.0]
