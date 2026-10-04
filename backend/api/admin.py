@@ -31,9 +31,11 @@ def login(body: LoginIn, request: Request, response: Response):
     settings = settings_of(request)
     if not settings.admin_password:
         raise HTTPException(503, "Admin is disabled: set ADMIN_PASSWORD.")
-    if not request.app.state.limiters.admin_login_ip.hit(client_ip(request)):
+    limiter, ip = request.app.state.limiters.admin_login_ip, client_ip(request)
+    if limiter.blocked(ip):
         raise HTTPException(429, "Too many attempts. Try again in 15 minutes.")
     if not hmac.compare_digest(body.password.encode(), settings.admin_password.encode()):
+        limiter.hit(ip)
         raise HTTPException(401, "Wrong password.")
     set_cookie(response, settings, ADMIN_COOKIE, admin_signer(settings).sign(b"admin").decode(), ADMIN_MAX_AGE)
     return {"ok": True}

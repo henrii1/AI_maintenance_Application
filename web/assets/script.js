@@ -55,13 +55,28 @@ document.addEventListener('DOMContentLoaded', function () {
       }
       if (!form.hasAttribute('data-access-form')) { done(); return; }
       var data = new FormData(form);
+      var msg = form.querySelector('.form-msg');
+      if (!msg) {
+        msg = document.createElement('p');
+        msg.className = 'form-msg';
+        msg.setAttribute('role', 'alert');
+        msg.style.cssText = 'color:#b42318; font-size:13.5px; margin-top:10px;';
+        form.appendChild(msg);
+      }
+      msg.textContent = '';
+      var label = btn ? btn.textContent : '';
+      if (btn) btn.disabled = true;
+      function fail(text) { msg.textContent = text; if (btn) { btn.disabled = false; btn.textContent = label; } }
       fetch('/api/access/request', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: data.get('email'), name: data.get('name'), company: data.get('company'),
                                note: data.get('title') ? 'Job title: ' + data.get('title') : '' })
       }).then(function (r) {
-        if (r.ok) { done(); } else if (btn) { btn.textContent = 'Please check the form and try again'; }
-      }).catch(function () { if (btn) { btn.textContent = 'Network error, try again'; } });
+        if (r.ok) { done(); return; }
+        return r.json().catch(function () { return {}; }).then(function (j) {
+          fail(typeof j.detail === 'string' ? j.detail : 'Please check the form and try again.');
+        });
+      }).catch(function () { fail('Network error, please try again.'); });
     });
   });
 });

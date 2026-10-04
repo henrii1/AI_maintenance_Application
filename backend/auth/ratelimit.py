@@ -22,3 +22,12 @@ class RateLimiter:
                 return False
             q.append(now)
             return True
+
+    def blocked(self, key: str) -> bool:
+        """True if the window already holds `limit` hits. Prunes, never records."""
+        now = self.clock()
+        with self._lock:
+            q = self._hits[key]
+            while q and q[0] <= now - self.window:
+                q.popleft()
+            return len(q) >= self.limit

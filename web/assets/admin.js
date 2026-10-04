@@ -5,7 +5,20 @@ let status = "pending";
 async function api(path, { method = "GET", body } = {}) {
   const opts = { method, credentials: "same-origin", headers: {} };
   if (body !== undefined) { opts.headers["Content-Type"] = "application/json"; opts.body = JSON.stringify(body); }
-  return fetch(path, opts);
+  const resp = await fetch(path, opts);
+  if (resp.status === 401 && path !== "/api/admin/login") { showLogin(); return resp; }
+  if (!resp.ok && path !== "/api/admin/login") {
+    let detail = null;
+    try { const j = await resp.clone().json(); if (typeof j.detail === "string") detail = j.detail; } catch {}
+    setMsg(detail || `Request failed (${resp.status})`, true);
+  }
+  return resp;
+}
+
+function setMsg(text, isError = false) {
+  const m = $("#admin-msg");
+  m.textContent = text || "";
+  m.style.color = isError ? "#b42318" : "#067647";
 }
 
 function cell(text, cls) { const td = document.createElement("td"); if (cls) td.className = cls; td.textContent = text ?? ""; return td; }
@@ -18,16 +31,19 @@ function button(label, onClick, primary = false) {
 const when = iso => (iso ? new Date(iso).toLocaleString() : "—");
 
 async function act(email, action) {
+  if (action === "revoke" && !confirm(`Revoke access for ${email}? Their sessions end immediately.`)) return;
   const resp = await api(`/api/admin/requests/${encodeURIComponent(email)}/${action}`, { method: "POST" });
-  if (!resp.ok) alert(`Failed: ${resp.status}`);
-  await refresh();
+  await refresh(!resp.ok);
+  if (resp.ok && action === "resend-code") setMsg(`Code sent to ${email}.`);
 }
 
 async function showConversations(email) {
-  const convs = await (await api(`/api/admin/requests/${encodeURIComponent(email)}/conversations`)).json();
+  const resp = await api(`/api/admin/requests/${encodeURIComponent(email)}/conversations`);
+  if (!resp.ok) return;
+  const convs = await resp.json();
   const body = $("#conv-body");
   body.innerHTML = "";
-  const h = document.createElement("h3"); h.textContent = `${email}: ${convs.length} conversations`; body.append(h);
+  const h = document.createElement("h3"); h.textContent = `${email}: ${convs.length} ${convs.length === 1 ? "conversation" : "conversations"}`; body.append(h);
   for (const c of convs) for (const m of c.messages) {
     const div = document.createElement("div");
     div.className = "turn";
@@ -62,9 +78,9 @@ function renderRows(rows) {
       limit.type = "number"; limit.min = "0"; limit.className = "limit"; limit.placeholder = "default";
       limit.value = r.daily_limit ?? "";
       limit.addEventListener("change", async () => {
-        await api(`/api/admin/requests/${encodeURIComponent(r.email)}`, { method: "PATCH",
+        const resp = await api(`/api/admin/requests/${encodeURIComponent(r.email)}`, { method: "PATCH",
           body: { daily_limit: limit.value === "" ? null : Number(limit.value) } });
-        refresh();
+        await refresh(!resp.ok);
       });
       const limitCell = document.createElement("td"); limitCell.append(limit);
       row.append(cell(String(r.questions_today)), cell(String(r.questions_total)), cell(when(r.last_active)), limitCell);
@@ -79,18 +95,22 @@ function renderRows(rows) {
   }
 }
 
-async function refresh() {
-  const [rowsResp, statsResp] = await Promise.all([api(`/api/admin/requests?status=${status}`), api("/api/admin/stats")]);
-  if (rowsResp.status === 401) { showLogin(); return; }
-  renderRows(await rowsResp.json());
-  const s = await statsResp.json();
-  $("#stats").innerHTML = "";
-  for (const [value, label] of [[s.pending, "pending requests"], [`${s.questions_today} / ${s.global_limit}`, "questions today"],
-    [`$${s.cost_today_usd.toFixed(2)}`, "estimated spend today"]]) {
-    const d = document.createElement("div"); d.className = "stat";
-    const b = document.createElement("b"); b.textContent = value;
-    const span = document.createElement("span"); span.textContent = label;
-    d.append(b, span); $("#stats").append(d);
+async function refresh(keepMsg = false) {
+  const mine = status;
+  if (!keepMsg) setMsg("");
+  const [rowsResp, statsResp] = await Promise.all([api(`/api/admin/requests?status=${mine}`), api("/api/admin/stats")]);
+  if (mine !== status) return;
+  if (rowsResp.ok) renderRows(await rowsResp.json());
+  if (statsResp.ok) {
+    const s = await statsResp.json();
+    $("#stats").innerHTML = "";
+    for (const [value, label] of [[s.pending, "pending requests"], [`${s.questions_today} / ${s.global_limit}`, "questions today"],
+      [`$${s.cost_today_usd.toFixed(2)}`, "estimated spend today"]]) {
+      const d = document.createElement("div"); d.className = "stat";
+      const b = document.createElement("b"); b.textContent = value;
+      const span = document.createElement("span"); span.textContent = label;
+      d.append(b, span); $("#stats").append(d);
+    }
   }
 }
 
@@ -103,7 +123,11 @@ $("#login-form").addEventListener("submit", async e => {
   const resp = await api("/api/admin/login", { method: "POST", body: { password: form.password.value } });
   const err = $(".form-error", form);
   if (resp.ok) { err.hidden = true; showAdmin(); }
-  else { err.textContent = (await resp.json()).detail || "Sign-in failed."; err.hidden = false; }
+  else {
+    let detail = null;
+    try { const j = await resp.json(); if (typeof j.detail === "string") detail = j.detail; } catch {}
+    err.textContent = detail || "Sign-in failed."; err.hidden = false;
+  }
 });
 $("#logout").addEventListener("click", async () => { await api("/api/admin/logout", { method: "POST", body: {} }); showLogin(); });
 $$("#status-tabs [data-status]").forEach(b => b.addEventListener("click", () => {

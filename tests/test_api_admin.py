@@ -13,6 +13,12 @@ def test_login_wrong_password_and_rate_limit(make_client):
     assert codes == [401] * 5 + [429]
 
 
+def test_successful_logins_not_rate_limited(make_client):
+    c = make_client()
+    codes = [c.post("/api/admin/login", json={"password": "pw"}).status_code for _ in range(6)]
+    assert codes == [200] * 6
+
+
 def test_approve_emails_code_that_redeems(make_client):
     c = make_client()
     c.post("/api/access/request", json={"email": "tech@example.com", "name": "Tess", "company": "Acme"})

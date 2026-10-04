@@ -26,7 +26,7 @@
   .actions { display: flex; gap: 6px; flex-wrap: wrap; }
   .actions button { font: inherit; font-size: 12.5px; padding: 5px 10px; border-radius: 6px; border: 1px solid var(--line); background: var(--white); cursor: pointer; }
   .actions button.primary { background: var(--navy); color: var(--white); border-color: var(--navy); }
-  .limit { width: 84px; padding: 4px 6px; font: inherit; }
+  .limit { width: 100px; padding: 4px 6px; font: inherit; }
   dialog { max-width: 760px; width: 92vw; border: 1px solid var(--line); border-radius: 12px; }
   dialog .turn { border-bottom: 1px solid var(--line); padding: 8px 0; font-size: 14px; white-space: pre-wrap; }
 </style>
@@ -50,6 +50,7 @@
 
 <main class="admin" id="admin-view" hidden>
   <div class="stats" id="stats"></div>
+  <p id="admin-msg" role="status" style="color:#b42318; font-size:14px; margin:0 0 12px;"></p>
   <div class="seg" id="status-tabs">
     <button type="button" data-status="pending" aria-pressed="true">Pending</button>
     <button type="button" data-status="approved" aria-pressed="false">Approved</button>

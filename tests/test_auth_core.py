@@ -164,6 +164,16 @@ def test_rate_limiter_window():
     assert rl.hit("k")
 
 
+def test_rate_limiter_blocked_does_not_record():
+    t = [0.0]
+    rl = RateLimiter(2, 60, clock=lambda: t[0])
+    assert not rl.blocked("k") and not rl.blocked("k") and not rl.blocked("k")
+    rl.hit("k"); rl.hit("k")
+    assert rl.blocked("k")
+    t[0] = 61
+    assert not rl.blocked("k")
+
+
 def test_concurrent_redeem_is_single_use(db, settings):
     c = connect_app(db)
     approve(c)
