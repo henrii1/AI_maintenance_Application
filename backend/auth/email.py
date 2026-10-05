@@ -13,6 +13,7 @@ from backend.config import Settings
 
 log = logging.getLogger(__name__)
 RESEND_URL = "https://api.resend.com/emails"
+SANDBOX_SENDER = "@resend.dev"
 
 
 @dataclass(frozen=True)
@@ -39,6 +40,10 @@ class Mailer:
                                json={"from": self.settings.email_from, "to": [to], "subject": subject,
                                      "html": html, "text": text})
             r.raise_for_status()
+            if SANDBOX_SENDER in self.settings.email_from:
+                # Resend's test sender only delivers to the account owner and may accept, then fail,
+                # other recipients — keep a copy in the server log until a domain is verified.
+                self._print("EMAIL (also printed: Resend test sender in use)", to, subject, text)
             return True
         except httpx.HTTPError as e:
             reason = str(e)

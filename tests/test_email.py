@@ -32,6 +32,18 @@ def test_resend_payload_and_failure():
     assert bad.send("a@b.co", "Subj", "h", "t") is False
 
 
+def test_sandbox_sender_also_prints_accepted_emails(capsys):
+    # Resend's test sender may accept a message (200) and fail delivery later for non-owner recipients.
+    ok = httpx.MockTransport(lambda r: httpx.Response(200, json={"id": "1"}))
+    sandbox = Settings(_env_file=None, resend_api_key="re_test", email_from="Onesi <onboarding@resend.dev>")
+    assert Mailer(sandbox, http=httpx.Client(transport=ok)).send("second@x.co", "Code", "<p>K7QM-4XPD</p>", "Code K7QM-4XPD")
+    out = capsys.readouterr().out
+    assert "test sender" in out and "second@x.co" in out and "K7QM-4XPD" in out
+    verified = Settings(_env_file=None, resend_api_key="re_test", email_from="Onesi <access@mail.onesi.example>")
+    assert Mailer(verified, http=httpx.Client(transport=ok)).send("second@x.co", "Code", "<p>x</p>", "Code x")
+    assert capsys.readouterr().out == ""
+
+
 def test_refused_email_is_printed_for_local_testing(capsys):
     # Without a verified domain Resend refuses non-owner recipients (403); the code must still be recoverable.
     refuse = httpx.MockTransport(lambda r: httpx.Response(
